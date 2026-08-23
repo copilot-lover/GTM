@@ -16,3 +16,71 @@ body {
 .mono {
   font-family: "JetBrains Mono", ui-monospace, monospace;
 }
+
+/* ---- GTM agents-feed dashboard (IMG_1180 style) ---- */
+.gtm-page {
+  min-height: 100vh;
+  background: #eef0f4;
+  padding: 24px;
+  display: flex;
+  justify-content: center;
+}
+.gtm-banner {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+  background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5;
+  padding: 8px 16px; border-radius: 999px; font-size: 13px; z-index: 50;
+}
+.gtm-card {
+  background: #ffffff; border-radius: 20px; width: 100%; max-width: 640px;
+  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.10); overflow: hidden;
+  align-self: flex-start;
+}
+.gtm-header {
+  display: flex; align-items: center; gap: 12px; padding: 20px 24px 8px;
+}
+.gtm-logo {
+  width: 34px; height: 34px; border-radius: 10px; background: #0f172a;
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+.gtm-title { font-size: 22px; font-weight: 600; color: #0f172a; margin: 0; }
+.gtm-pill {
+  margin-left: auto; display: flex; align-items: center; gap: 7px;
+  border: 1px solid #e2e8f0; border-radius: 999px; padding: 6px 14px;
+  font-size: 14px; color: #0f172a; background: #fff;
+}
+.gtm-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
+.gtm-kpis {
+  display: flex; gap: 16px; flex-wrap: wrap; padding: 8px 24px 14px;
+  font-size: 12.5px; color: #64748b; border-bottom: 1px solid #eef1f5;
+}
+.gtm-kpis b { color: #0f172a; font-weight: 600; }
+.gtm-feed { display: flex; flex-direction: column; }
+.gtm-row {
+  display: flex; gap: 14px; padding: 18px 24px; text-decoration: none;
+  border-bottom: 1px solid #f1f4f8; align-items: flex-start; color: inherit;
+}
+.gtm-row:hover { background: #f8fafc; }
+.gtm-row-icon { font-size: 18px; color: #2563eb; margin-top: 2px; }
+.gtm-row-main { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.gtm-row-title { font-size: 16.5px; font-weight: 600; color: #0f172a; }
+.gtm-row-sub { font-size: 14px; color: #94a3b8; }
+.gtm-row-contact { font-size: 15px; color: #334155; }
+.gtm-row-cost { font-size: 13px; color: #94a3b8; margin-top: 2px; }
+.gtm-chip {
+  align-self: flex-start; margin-top: 4px; font-size: 12.5px;
+  border-radius: 999px; padding: 3px 10px;
+}
+.gtm-chip-green { background: #dcfce7; color: #166534; }
+.gtm-chip-amber { background: #fef3c7; color: #92400e; }
+.gtm-chip-gray { background: #f1f5f9; color: #64748b; }
+.gtm-empty { padding: 36px 24px; text-align: center; color: #64748b; }
+.gtm-cta {
+  margin-top: 12px; background: #0f172a; color: #fff; border: none;
+  border-radius: 999px; padding: 10px 22px; font-size: 14px; cursor: pointer;
+}
+.gtm-cta:hover { background: #1e293b; }
+.gtm-error { padding: 8px 24px; color: #b91c1c; font-size: 13px; }
+.gtm-footer {
+  padding: 16px 24px 20px; text-align: center; color: #94a3b8; font-size: 14px;
+}

@@ -45,3 +45,13 @@ All four WS critics cite PASS at the mapped-criteria level, or two consecutive w
 
 ## Wave 2 scope (fix targets)
 1 place_call: normalized phone + company-scope suppression · 2 atomic send claim + idempotency key + attempts-based dead-letter · 3 persist reply + kill switch before/regardless of LLM · 4 n8n healthz check + dashboard 30s poll + agent_failures alias fix · 5 physical postal address env · 6 pipeline integration tests · 7 deterministic hiring-intent keyword signals + contact persistence · 8 SendBlocked→409 · 9 expiry-before-select · 10 DTMF keypad + mic picker · 11 RECOVERY.md completeness
+
+## Wave 2 verdicts (fresh-context critics, post-fix)
+| WS | Verdict | Notes |
+|---|---|---|
+| WS2+WS4 re-critic | PASS 6/6 items + suite 53->54 green | residual: unverified-email regression test -> added |
+| WS1+WS3 re-critic | PASS 6/6 items | residuals: RECOVERY.md paths, keypad render window -> fixed |
+| Final | All §19.1-19.7 criteria PASS at mapped level or documented external-cred dependency | |
+
+## End condition
+Bar reached: every mapped criterion has independent critic evidence. Remaining external dependencies (Twilio/SMTP/LLM keys, git remote) are credential gaps, not implementation gaps.

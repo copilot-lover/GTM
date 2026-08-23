@@ -1,88 +1,137 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 
+const STAGE_ICONS: Record<string, string> = {
+  sourcing: "◎",
+  qualifying: "◎",
+  writing: "◎",
+  waiting: "◎",
+  meeting: "◎",
+  draft: "◎",
+  cadence: "◎",
+  rejected: "○",
+  default: "◎",
+};
+
+function stageMeta(a: any): { label: string; chip?: string; tone?: string } {
+  const s: string = a.summary || "";
+  if (s.startsWith("Sourcing")) return { label: "Sourcing leads" };
+  if (s.startsWith("Qualifying")) return { label: "Scoring ICP fit" };
+  if (s.startsWith("Writing")) return { label: "Writing the opener" };
+  if (s.startsWith("Draft awaiting")) return { label: "One-preview approval", chip: "Needs you", tone: "amber" };
+  if (s.startsWith("Waiting on reply")) return { label: "Waiting on reply · last send 6h ago" };
+  if (s.startsWith("Meeting")) return { label: s, chip: "Booked", tone: "green" };
+  if (s.startsWith("Cadence")) return { label: "Cadence running" };
+  if (s.startsWith("Rejected")) return { label: s, chip: "Skipped", tone: "gray" };
+  return { label: s };
+}
+
 export default function Dashboard() {
-  const [data, setData] = useState<any>(null);
+  const [feed, setFeed] = useState<any>(null);
   const [health, setHealth] = useState<any>(null);
+  const [kpis, setKpis] = useState<any>(null);
   const [error, setError] = useState("");
+  const [seeding, setSeeding] = useState(false);
+
+  async function poll() {
+    try {
+      const [f, h, d] = await Promise.all([
+        api("/feed"),
+        api("/system-health"),
+        api("/dashboard"),
+      ]);
+      setFeed(f); setHealth(h); setKpis(d); setError("");
+    } catch (e: any) { setError(e.message); }
+  }
 
   useEffect(() => {
-    let cancelled = false;
-    async function poll() {
-      try {
-        const [d, h] = await Promise.all([api("/dashboard"), api("/system-health")]);
-        if (!cancelled) { setData(d); setHealth(h); setError(""); }
-      } catch (e: any) {
-        if (!cancelled) setError(e.message);
-      }
-    }
     poll();
-    const timer = setInterval(poll, 30000); // spec §19.6: flip within one poll interval
-    return () => { cancelled = true; clearInterval(timer); };
+    const t = setInterval(poll, 30000);
+    return () => clearInterval(t);
   }, []);
 
-  if (error) return <p className="text-red-400">{error} — <button className="underline" onClick={() => location.reload()}>retry</button></p>;
-  if (!data) return <div className="animate-pulse text-zinc-600">loading…</div>;
+  async function seedDemo() {
+    setSeeding(true);
+    try { await api("/feed/seed-demo", { method: "POST" }); await poll(); }
+    catch (e: any) { setError(e.message); }
+    setSeeding(false);
+  }
 
-  const degraded = health && Object.entries(health.checks).some(
-    ([k, v]) =>
-      k !== "database" &&
-      k !== "agent_failures_24h" &&
-      v !== "ok" &&
-      v !== "configured"
-  );
+  const degraded =
+    health &&
+    Object.entries(health.checks).some(
+      ([k, v]) =>
+        k !== "database" && k !== "agent_failures_24h" && v !== "ok" && v !== "configured"
+    );
+
+  const items = feed?.items ?? [];
+  const isEmpty = feed && items.length === 0;
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-lg font-semibold">Dashboard</h1>
+    <div className="gtm-page">
       {degraded && (
-        <div className="bg-red-950/60 border border-red-800 rounded px-4 py-2 text-sm text-red-300">
-          System degraded: {JSON.stringify(health.checks)}
+        <div className="gtm-banner">
+          System degraded: {JSON.stringify(health?.checks)}
         </div>
       )}
-      <div className="grid grid-cols-5 gap-3">
-        {[
-          ["New leads today", data.kpis.new_leads_today],
-          ["Contacted", data.kpis.contacted_total],
-          ["Replies", data.kpis.replies_total],
-          ["Upcoming meetings", data.kpis.upcoming_meetings],
-          ["Open pipeline $", data.kpis.open_pipeline_mrr],
-        ].map(([label, value]) => (
-          <div key={label as string} className="bg-[#14161b] border border-zinc-800 rounded p-3">
-            <div className="mono text-2xl text-[#22c55e]">{String(value)}</div>
-            <div className="text-xs text-zinc-500 mt-1">{label}</div>
+
+      <div className="gtm-card">
+        <div className="gtm-header">
+          <div className="gtm-logo">◎</div>
+          <h1 className="gtm-title">Agents</h1>
+          <span className="gtm-pill">
+            <span className="gtm-dot" /> {feed?.total_plays ?? 0}
+          </span>
+        </div>
+
+        <div className="gtm-kpis">
+          <span><b>{kpis?.kpis?.new_leads_today ?? 0}</b> new today</span>
+          <span><b>{kpis?.kpis?.contacted_total ?? 0}</b> contacted</span>
+          <span><b>{kpis?.kpis?.replies_total ?? 0}</b> replies</span>
+          <span><b>{kpis?.kpis?.upcoming_meetings ?? 0}</b> meetings</span>
+          <span><b>${Number(kpis?.ai_spend_today_usd ?? 0).toFixed(2)}</b> AI today</span>
+        </div>
+
+        {error && <p className="gtm-error">{error} — retrying on next poll</p>}
+
+        {isEmpty && (
+          <div className="gtm-empty">
+            <p>No plays yet — your workspace is brand new.</p>
+            <button className="gtm-cta" onClick={seedDemo} disabled={seeding}>
+              {seeding ? "Loading…" : "Load demo batch"}
+            </button>
           </div>
-        ))}
-      </div>
-      <div className="grid grid-cols-2 gap-6">
-        <section>
-          <h2 className="text-sm font-medium text-zinc-400 mb-2">Pipeline</h2>
-          <div className="bg-[#14161b] border border-zinc-800 rounded p-3 space-y-1">
-            {Object.entries(data.funnel).map(([status, n]) => (
-              <div key={status} className="flex justify-between mono text-sm">
-                <span className="text-zinc-400">{status}</span>
-                <span>{String(n)}</span>
-              </div>
-            ))}
-            {Object.keys(data.funnel).length === 0 && (
-              <p className="text-zinc-600 text-sm">no leads yet — run your first batch</p>
-            )}
-          </div>
-        </section>
-        <section>
-          <h2 className="text-sm font-medium text-zinc-400 mb-2">
-            Hot leads · {data.pending_approvals} pending approval · ${data.ai_spend_today_usd.toFixed(2)} AI today
-          </h2>
-          <div className="bg-[#14161b] border border-zinc-800 rounded divide-y divide-zinc-800/70">
-            {data.hot_leads.map((l: any) => (
-              <a key={l.id} href={`/leads/${l.id}`} className="flex justify-between px-3 py-2 hover:bg-zinc-800/40 text-sm">
-                <span>{l.business_name}</span>
-                <span className="mono text-[#22c55e]">{l.priority_score ?? "—"}</span>
+        )}
+
+        <div className="gtm-feed">
+          {items.map((a: any) => {
+            const meta = stageMeta(a);
+            return (
+              <a key={a.lead_id + a.created_at} className="gtm-row"
+                 href={`/leads/${a.lead_id}`}>
+                <span className="gtm-row-icon">{STAGE_ICONS.default}</span>
+                <span className="gtm-row-main">
+                  <span className="gtm-row-title">{a.business_name}</span>
+                  <span className="gtm-row-sub">{meta.label}</span>
+                  <span className="gtm-row-contact">
+                    {[a.business_name, [a.city, a.state].filter(Boolean).join(", ")]
+                      .filter(Boolean).join(" · ")}
+                  </span>
+                  {meta.chip && (
+                    <span className={`gtm-chip gtm-chip-${meta.tone}`}>
+                      {meta.chip}
+                    </span>
+                  )}
+                </span>
+                <span className="gtm-row-cost">
+                  {a.priority_score != null ? `${a.priority_score}` : "—"}
+                </span>
               </a>
-            ))}
-            {data.hot_leads.length === 0 && <p className="px-3 py-2 text-zinc-600 text-sm">no hot leads</p>}
-          </div>
-        </section>
+            );
+          })}
+        </div>
+
+        <div className="gtm-footer">One preview. Then the loop runs.</div>
       </div>
     </div>
   );

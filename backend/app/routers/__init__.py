@@ -2,6 +2,7 @@ from app.routers import (
     auth,
     companies,
     dashboard,
+    feed,
     dialer,
     health,
     hiring_intent,
@@ -21,5 +22,6 @@ routes = [
     dialer.router,
     hiring_intent.router,
     dashboard.router,
+    feed.router,
     scrape.router,
 ]
