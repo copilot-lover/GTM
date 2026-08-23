@@ -7,10 +7,12 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "psycopg[binary,pool]>=3.2",
-    "pydantic>=2.7",
+    "pydantic[email]>=2.7",
     "pydantic-settings>=2.3",
     "python-multipart>=0.0.9",
     "scrapling[fetchers]>=0.2",
+    "pyjwt>=2.13.0",
+    "dnspython>=2.8.0",
 ]
 
 [dependency-groups]

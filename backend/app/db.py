@@ -25,3 +25,11 @@ def close_pool() -> None:
     if _pool is not None:
         _pool.close()
         _pool = None
+
+
+def execute_one(query: str, params: tuple) -> dict | None:
+    from psycopg.rows import dict_row
+
+    with get_pool().connection() as conn:
+        conn.row_factory = dict_row
+        return conn.execute(query, params).fetchone()
