@@ -134,10 +134,10 @@ export default function Dialer() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h1 className="text-lg font-semibold">Session Dialer</h1>
+      <div className="gtm-toolbar">
+        <h1>Session Dialer</h1>
         {kpis && (
-          <span className="mono text-xs text-zinc-500">
+          <span className="gtm-count">
             today: {kpis.calls_today} calls ·{" "}
             {Math.round((kpis.connection_rate_today ?? 0) * 100)}% connect
           </span>
@@ -148,7 +148,7 @@ export default function Dialer() {
         <select
           value={sessionId}
           onChange={(e) => openSession(e.target.value)}
-          className="bg-black/40 border border-zinc-700 rounded px-2 py-1.5 text-sm"
+          className="gtm-select"
         >
           <option value="">— choose session —</option>
           {sessions.map((s) => (
@@ -159,9 +159,7 @@ export default function Dialer() {
         </select>
         <button
           onClick={connectBrowser}
-          className={`rounded px-3 py-1.5 text-xs ${
-            deviceRef.current ? "bg-[#22c55e]/20 text-[#22c55e]" : "bg-zinc-800 hover:bg-zinc-700"
-          }`}
+          className={`gtm-btn ${deviceRef.current ? "gtm-btn-green" : "gtm-btn-ghost"}`}
         >
           {deviceRef.current ? "browser connected ✓" : "connect browser audio"}
         </button>
@@ -169,7 +167,7 @@ export default function Dialer() {
           <select
             defaultValue=""
             onChange={(e) => pickMic(e.target.value)}
-            className="bg-black/40 border border-zinc-700 rounded px-2 py-1.5 text-xs max-w-56"
+            className="gtm-select" style={{ maxWidth: 220 }}
           >
             <option value="">mic: default</option>
             {mics.map((m, i) => (
@@ -180,19 +178,19 @@ export default function Dialer() {
           </select>
         )}
         {callState !== "idle" && (
-          <span className="mono text-xs text-[#22c55e] animate-pulse">● {callState}</span>
+          <span className="gtm-chip gtm-chip-green">● {callState}</span>
         )}
       </div>
 
-      {error && <p className="text-red-400 text-sm">{error}</p>}
+      {error && <div className="gtm-alert gtm-alert-red">{error}</div>}
 
       {callState !== "idle" && activeLead && (
-        <div className="bg-[#14161b] border border-[#22c55e]/40 rounded p-4 space-y-3">
+        <div className="gtm-panel space-y-3" style={{ border: "1px solid #86efac" }}>
           <div className="flex justify-between">
-            <span className="font-medium">
+            <span style={{ fontWeight: 600 }}>
               On call: {activeLead.business_name} ({activeLead.phone})
             </span>
-            <button onClick={hangup} className="bg-red-900/70 text-red-100 rounded px-3 py-1 text-xs">
+            <button onClick={hangup} className="gtm-btn gtm-btn-red">
               Hang up
             </button>
           </div>
@@ -202,12 +200,12 @@ export default function Dialer() {
             <div className="grid grid-cols-3 gap-1.5 w-44">
               {["1","2","3","4","5","6","7","8","9","*","0","#"].map((d) => (
                 <button key={d} onClick={() => sendDigit(d)}
-                  className="mono bg-black/40 border border-zinc-700 rounded py-1.5 text-sm hover:bg-zinc-800">
+                  className="mono gtm-input" style={{ padding: "6px 0", textAlign: "center" }}>
                   {d}
                 </button>
               ))}
             </div>
-            <div className="text-xs text-zinc-500">DTMF<br />(live call)</div>
+            <div className="gtm-muted" style={{ fontSize: 12 }}>DTMF<br />(live call)</div>
           </div>
 
           <div className="flex gap-1.5 flex-wrap">
@@ -230,17 +228,17 @@ export default function Dialer() {
         </div>
       )}
 
-      <table className="w-full text-sm">
-        <thead className="text-left text-xs text-zinc-500 border-b border-zinc-800">
+      <table className="gtm-table">
+        <thead>
           <tr>
-            <th className="py-2">Business</th><th>Phone</th><th>Pri</th>
+            <th>Business</th><th>Phone</th><th>Pri</th>
             <th>Last disposition</th><th></th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-zinc-800/60">
+        <tbody>
           {queue.map((q) => (
-            <tr key={q.lead_id} className="hover:bg-zinc-800/30">
-              <td className="py-2">{q.business_name}</td>
+            <tr key={q.lead_id}>
+              <td>{q.business_name}</td>
               <td className="mono">{q.phone ?? "—"}</td>
               <td className="mono">{q.priority_score ?? "—"}</td>
               <td>{q.last_disposition ?? "—"}</td>
@@ -248,7 +246,8 @@ export default function Dialer() {
                 <button
                   disabled={!q.phone || callState !== "idle"}
                   onClick={() => call(q)}
-                  className="bg-[#22c55e]/20 text-[#22c55e] rounded px-3 py-1 text-xs disabled:opacity-30"
+                  className="gtm-btn gtm-btn-green"
+                  style={{ padding: "5px 14px" }}
                 >
                   Call
                 </button>
@@ -257,7 +256,7 @@ export default function Dialer() {
           ))}
         </tbody>
       </table>
-      {sessionId && queue.length === 0 && <p className="text-zinc-600 text-sm">queue empty</p>}
+      {sessionId && queue.length === 0 && <div className="gtm-panel gtm-empty">queue empty</div>}
     </div>
   );
 }

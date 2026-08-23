@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 
+const STATUSES = ["new","enriching","qualified","outreach_ready","contacted","responded",
+  "meeting_booked","proposal","won","lost","rejected","do_not_call"];
+
 export default function Leads() {
   const [items, setItems] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -21,52 +24,55 @@ export default function Leads() {
 
   useEffect(() => { load(); }, [q, status]);
 
-  if (error) return <p className="text-red-400">{error}</p>;
-
   return (
-    <div className="space-y-4">
-      <div className="flex gap-3 items-center">
-        <h1 className="text-lg font-semibold">Leads</h1>
-        <input
-          placeholder="search…" value={q} onChange={(e) => setQ(e.target.value)}
-          className="bg-black/40 border border-zinc-700 rounded px-3 py-1.5 text-sm w-64"
-        />
-        <select value={status} onChange={(e) => setStatus(e.target.value)}
-                className="bg-black/40 border border-zinc-700 rounded px-2 py-1.5 text-sm">
+    <div className="gtm-page">
+      <div className="gtm-toolbar">
+        <h1>Leads</h1>
+        <input className="gtm-input" placeholder="search…" value={q}
+               onChange={(e) => setQ(e.target.value)} style={{ width: 240 }} />
+        <select className="gtm-select" value={status}
+                onChange={(e) => setStatus(e.target.value)}>
           <option value="">all statuses</option>
-          {["new","enriching","qualified","outreach_ready","contacted","responded",
-            "meeting_booked","proposal","won","lost","rejected","do_not_call"].map((s) => (
-            <option key={s}>{s}</option>
-          ))}
+          {STATUSES.map((s) => <option key={s}>{s}</option>)}
         </select>
-        <span className="mono text-xs text-zinc-500">{total} total</span>
+        <span className="gtm-count">{total} total</span>
       </div>
-      <table className="w-full text-sm">
-        <thead className="text-left text-xs text-zinc-500 border-b border-zinc-800">
+
+      {error && <div className="gtm-alert gtm-alert-red">{error}</div>}
+
+      <table className="gtm-table">
+        <thead>
           <tr>
-            <th className="py-2">Business</th><th>City</th><th>Score</th>
-            <th>Tier</th><th>Status</th><th>Pain</th><th>Offer</th>
+            <th>Business</th><th>City</th><th>Score</th><th>Tier</th>
+            <th>Status</th><th>Pain</th><th>Offer</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-zinc-800/60">
+        <tbody>
           {items.map((l) => (
-            <tr key={l.id} className="hover:bg-zinc-800/30">
-              <td className="py-2">
-                <a href={`/leads/${l.id}`} className="text-[#22c55e] hover:underline">
-                  {l.business_name}
-                </a>
+            <tr key={l.id}>
+              <td>
+                <a className="gtm-link" href={`/leads/${l.id}`}>{l.business_name}</a>
               </td>
               <td>{[l.city, l.state].filter(Boolean).join(", ")}</td>
               <td className="mono">{l.lead_score ?? "—"}</td>
               <td className="mono">{l.priority_tier ?? "—"}</td>
-              <td>{l.status}</td>
-              <td className="text-zinc-500">{l.primary_pain ?? "—"}</td>
-              <td className="text-zinc-500">{l.recommended_offer ?? "—"}</td>
+              <td>
+                <span className={`gtm-chip gtm-chip-${
+                  l.status === "responded" || l.status === "meeting_booked" ? "green"
+                  : l.status === "rejected" || l.status === "do_not_call" ? "gray"
+                  : "amber"}`}>
+                  {l.status}
+                </span>
+              </td>
+              <td className="gtm-muted">{l.primary_pain ?? "—"}</td>
+              <td className="gtm-muted">{l.recommended_offer ?? "—"}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      {items.length === 0 && <p className="text-zinc-600">no results</p>}
+      {items.length === 0 && (
+        <div className="gtm-panel gtm-empty">no leads yet — run your first batch</div>
+      )}
     </div>
   );
 }

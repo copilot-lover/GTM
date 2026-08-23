@@ -71,3 +71,20 @@ import `app.services.scraping`). Stealth mode requires browser binaries:
 ```bash
 cd backend && ~/.local/bin/uv run scrapling install
 ```
+
+## n8n orchestration (wired)
+
+n8n runs the schedules; the API holds all logic. Active workflows:
+
+| Workflow | Schedule | Does |
+|---|---|---|
+| Follow-up Cadence | every 30 min | POST /api/outreach/process-cadence (sends approved messages, idempotent) |
+| Daily Digest & Health | 7 AM daily | health check, alerts on degradation |
+| Morning Lead Batch | manual | POST /api/pipeline/run with sourced lead ids |
+
+Auth: workflows use `ORBIT_SERVICE_TOKEN` (10-yr JWT for automation@orbit.local,
+injected into the systemd unit via orbit-n8n.service.d/token.conf). The service
+user is admin in every workspace. Regenerate: `backend/uv run python scripts/create_service_token.py`.
+
+Re-import workflows after editing exports:
+`N8N_USER_FOLDER=/home/ubuntu/GTM/orbit/n8n/data n8n import:workflow --input=<file>`

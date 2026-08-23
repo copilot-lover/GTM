@@ -20,79 +20,80 @@ export default function LeadDetail() {
     load();
   }
 
-  if (error) return <p className="text-red-400">{error}</p>;
-  if (!data) return <p className="text-zinc-600">loading…</p>;
+  if (error) return <div className="gtm-page"><div className="gtm-alert gtm-alert-red">{error}</div></div>;
+  if (!data) return <div className="gtm-page gtm-muted">loading…</div>;
 
   const l = data.lead;
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-lg font-semibold">{l.business_name}</h1>
-        <p className="text-xs text-zinc-500 mono">
-          {[l.city, l.state].filter(Boolean).join(", ")} · {l.phone ?? "no phone"} ·{" "}
-          <span className="text-[#22c55e]">{l.status}</span> · score{" "}
-          {l.lead_score ?? "—"}/10 · priority {l.priority_score ?? "—"}
-        </p>
+    <div className="gtm-page">
+      <div className="gtm-toolbar">
+        <div>
+          <h1>{l.business_name}</h1>
+          <span className="gtm-muted" style={{ fontSize: 13 }}>
+            {[l.city, l.state].filter(Boolean).join(", ")} · {l.phone ?? "no phone"}
+          </span>
+        </div>
+        <span className="gtm-pill" style={{ marginLeft: "auto" }}>
+          <span className="gtm-dot" /> {l.status}
+        </span>
+        <span className="gtm-pill">{l.lead_score ?? "—"}/10 · P{l.priority_score ?? "—"}</span>
       </div>
 
       {data.lead.review_reasons?.length > 0 && (
-        <div className="bg-amber-950/50 border border-amber-800 rounded px-4 py-2 text-sm text-amber-300">
+        <div className="gtm-alert gtm-alert-amber">
           Review queue: {(data.lead.review_reasons as string[]).join(" · ")}
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-6">
-        <section className="space-y-3">
-          <h2 className="text-sm font-medium text-zinc-400">AI Research</h2>
-          <div className="bg-[#14161b] border border-zinc-800 rounded p-3 text-sm space-y-2">
-            <Row k="Primary pain" v={l.primary_pain} />
-            <Row k="Secondary pain" v={l.secondary_pain} />
-            <Row k="Offer" v={l.recommended_offer} />
-            <Row k="Owner" v={l.owner_name} />
-            <Row k="Fit status" v={l.fit_status} />
+      <div className="grid grid-cols-2 gap-5">
+        <section className="space-y-4">
+          <div className="gtm-panel">
+            <h2>AI Research</h2>
+            <div className="gtm-kv"><span>Primary pain</span><span>{l.primary_pain ?? "—"}</span></div>
+            <div className="gtm-kv"><span>Secondary pain</span><span>{l.secondary_pain ?? "—"}</span></div>
+            <div className="gtm-kv"><span>Recommended offer</span><span>{l.recommended_offer ?? "—"}</span></div>
+            <div className="gtm-kv"><span>Owner</span><span>{l.owner_name ?? "—"}</span></div>
+            <div className="gtm-kv"><span>Fit status</span><span>{l.fit_status}</span></div>
           </div>
-          <h2 className="text-sm font-medium text-zinc-400">Next action</h2>
-          <div className="flex gap-2 flex-wrap">
-            {data.allowed_transitions.map((t: string) => (
-              <button key={t} onClick={() => transition(t)}
-                className={`rounded px-3 py-1.5 text-xs ${t === "do_not_call" ? "bg-red-900/60 text-red-200" : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"}`}>
-                → {t}
-              </button>
-            ))}
+          <div className="gtm-panel">
+            <h2>Next action</h2>
+            <div className="flex gap-2 flex-wrap">
+              {data.allowed_transitions.map((t: string) => (
+                <button key={t} onClick={() => transition(t)}
+                  className={`gtm-btn ${t === "do_not_call" ? "gtm-btn-red" : "gtm-btn-ghost"}`}>
+                  → {t}
+                </button>
+              ))}
+              {data.allowed_transitions.length === 0 && (
+                <span className="gtm-muted">terminal state</span>
+              )}
+            </div>
           </div>
         </section>
+
         <section>
-          <h2 className="text-sm font-medium text-zinc-400">Activity timeline</h2>
-          <div className="bg-[#14161b] border border-zinc-800 rounded divide-y divide-zinc-800/60 max-h-[60vh] overflow-auto">
-            {data.activities.map((a: any) => (
-              <div key={a.id} className="px-3 py-2 text-sm">
-                <span className="mono text-xs text-zinc-500 mr-2">
-                  {new Date(a.created_at).toLocaleString()}
-                </span>
-                <span className={
-                  a.actor === "human" ? "text-sky-300"
-                    : a.actor === "agent" ? "text-violet-300" : "text-zinc-500"
-                }>
-                  [{a.actor}]
-                </span>{" "}
-                {a.summary}
-              </div>
-            ))}
-            {data.activities.length === 0 && (
-              <p className="px-3 py-2 text-zinc-600 text-sm">no activity</p>
-            )}
+          <div className="gtm-panel">
+            <h2>Activity timeline</h2>
+            <div className="gtm-timeline" style={{ maxHeight: "60vh", overflow: "auto" }}>
+              {data.activities.map((a: any) => (
+                <div key={a.id} className="gtm-tl-row">
+                  <span className="gtm-tl-time mono">
+                    {new Date(a.created_at).toLocaleString()}
+                  </span>
+                  <span style={{
+                    color: a.actor === "human" ? "#2563eb"
+                      : a.actor === "agent" ? "#7c3aed" : "#94a3b8",
+                  }}>
+                    [{a.actor}]
+                  </span>{" "}
+                  {a.summary}
+                </div>
+              ))}
+              {data.activities.length === 0 && <div className="gtm-empty">no activity</div>}
+            </div>
           </div>
         </section>
       </div>
-    </div>
-  );
-}
-
-function Row({ k, v }: { k: string; v: any }) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-zinc-500">{k}</span>
-      <span className="mono">{v ?? "—"}</span>
     </div>
   );
 }
