@@ -1,0 +1,52 @@
+{
+  "name": "Orbit - Morning Lead Batch",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "triggerAtHour": 7 }] } },
+      "id": "cron7am",
+      "name": "Daily 7 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Target geo/vertical for today's batch (edit or load from config)\nreturn [{ json: { lead_ids: [] } }];"
+      },
+      "id": "batch_input",
+      "name": "Batch lead ids (from sourcing)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8100/api/pipeline/run",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ lead_ids: $json.lead_ids }) }}"
+      },
+      "id": "run_pipeline",
+      "name": "Run six-stage pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Daily 7 AM": { "main": [[{ "node": "Batch lead ids (from sourcing)", "type": "main", "index": 0 }]] },
+    "Batch lead ids (from sourcing)": { "main": [[{ "node": "Run six-stage pipeline", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": { "description": "Morning batch: sources feed candidate leads into the API, which runs qualify/enrich/audit/offer/personalize fail-closed. Blocked leads land in the review queue." }
+}

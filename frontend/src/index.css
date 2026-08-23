@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+/* Orbit dark-industrial theme (spec §13) */
+:root {
+  --surface-0: #0b0c0f;
+  --surface-1: #14161b;
+  --accent: #22c55e;
+}
+
+body {
+  background: var(--surface-0);
+  color: #d4d4d8;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.mono {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}

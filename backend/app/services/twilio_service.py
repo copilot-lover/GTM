@@ -113,14 +113,19 @@ def place_call(*, workspace_id: str, lead_id: str, to_number: str,
     data = resp.json()
 
     with db.get_pool().connection() as conn:
-        conn.execute(
+        conn.row_factory = db_psycopg_rows()
+        row = conn.execute(
             """INSERT INTO calls (workspace_id, lead_id, session_id, twilio_call_sid,
                    direction, from_number, to_number, disposition, called_at)
                VALUES (%s,%s,%s,%s,'outbound',%s,%s,'dialed',now())
-               ON CONFLICT (twilio_call_sid) DO NOTHING""",
+               ON CONFLICT (twilio_call_sid) DO NOTHING RETURNING id""",
             (workspace_id, lead_id, session_id, data["sid"], caller_id, to_number),
-        )
-    return {"call_sid": data["sid"], "status": data["status"]}
+        ).fetchone()
+        if row is None:
+            row = conn.execute(
+                "SELECT id FROM calls WHERE twilio_call_sid=%s", (data["sid"],)
+            ).fetchone()
+    return {"call_sid": data["sid"], "call_id": str(row["id"]), "status": data["status"]}
 
 
 # ------------------------------------------------------------------ webhooks

@@ -1,0 +1,61 @@
+{
+  "name": "Orbit - Daily Digest & Health",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "triggerAtHour": 7 }] } },
+      "id": "cron",
+      "name": "Daily 7 AM digest",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "url": "http://127.0.0.1:8100/api/health"
+      },
+      "id": "api_health",
+      "name": "API health",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "version": 2 },
+          "conditions": [
+            {
+              "leftValue": "={{$json.status}}",
+              "rightValue": "ok",
+              "operator": { "type": "string", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "degraded",
+      "name": "Degraded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Wire Telegram/Discord webhook here (PREFERRED alerting)\nconsole.log('ORBIT DEGRADED:', JSON.stringify($json));\nreturn [];"
+      },
+      "id": "alert",
+      "name": "Alert operator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    }
+  ],
+  "connections": {
+    "Daily 7 AM digest": { "main": [[{ "node": "API health", "type": "main", "index": 0 }]] },
+    "API health": { "main": [[{ "node": "Degraded?", "type": "main", "index": 0 }]] },
+    "Degraded?": { "main": [[{ "node": "Alert operator", "type": "main", "index": 0 }], null] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": { "description": "Health check + daily digest trigger point; alerts on degradation." }
+}
