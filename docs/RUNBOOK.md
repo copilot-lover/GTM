@@ -19,6 +19,14 @@ sudo systemctl enable --now postgresql orbit-api orbit-n8n
 ## Common operations
 
 ```bash
+# Tests (uses isolated orbit_test DB; provision once: see setup_db.sh)
+sudo -u postgres psql -c "ALTER ROLE orbit CREATEDB;"
+cd backend && ~/.local/bin/uv run pytest tests/
+
+# Provision test database (once)
+sudo -u postgres createdb -O orbit orbit_test
+sudo -u postgres psql -d orbit_test -c "CREATE EXTENSION IF NOT EXISTS pgcrypto; CREATE EXTENSION IF NOT EXISTS citext;"
+
 # Health
 curl http://127.0.0.1:8100/api/health
 systemctl status postgresql orbit-api orbit-n8n --no-pager
@@ -33,8 +41,17 @@ scripts/restore_db.sh backups/<file>.sql.gz
 # API logs
 journalctl -u orbit-api -f
 
+# Frontend: edit in frontend/, then rebuild (API serves frontend/dist)
+cd frontend && npm run build
+
 # n8n workflows are edited in the UI, then exported to n8n/workflows/ and committed.
 ```
+
+## Service tokens for n8n
+
+n8n workflows authenticate to the API with a service user's JWT
+(`ORBIT_SERVICE_TOKEN` env var in n8n). Create a dedicated operator account for
+automation rather than reusing Seth's login.
 
 ## Nightly backups
 
