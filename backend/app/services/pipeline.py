@@ -154,11 +154,11 @@ def stage_qualify(workspace_id: str, lead_id: str) -> dict:
     })
     if lead["status"] == "new":
         from app.services import state_machine
-        target = ("qualified" if fit_status == "qualified"
-                  else "rejected" if fit_status.startswith("rejected") else None)
-        if target:
-            with db.get_pool().connection() as conn:
-                state_machine.transition(conn, lead_id, workspace_id, "new", target)
+
+        # Spec §6.4: NEW → ENRICHING → QUALIFIED. Rejection short-circuits.
+        with db.get_pool().connection() as conn:
+            target = "rejected" if fit_status.startswith("rejected") else "enriching"
+            state_machine.transition(conn, lead_id, workspace_id, "new", target)
     _add_activity(
         workspace_id, lead_id,
         f"qualified: score {score}/10, fit_status={fit_status}, evidence recorded",
@@ -226,8 +226,19 @@ def stage_enrich(workspace_id: str, lead_id: str) -> dict:
             verify_email(workspace_id, lead_id, email.lower())
         if review_reasons:
             existing = list(lead.get("review_reasons") or [])
-            _update_lead(lead_id, {"review_reasons": json.dumps(existing + review_reasons),
-                                   "owner_operator_confidence": confidence})
+            _update_lead(lead_id, {"review_reasons": json.dumps(existing + review_reasons)})
+        if confidence:
+            conn.execute(
+                """UPDATE companies SET owner_operator_confidence=%s, updated_at=now()
+                   WHERE id=(SELECT company_id FROM leads WHERE id=%s)""",
+                (confidence, lead_id),
+            )
+    # enrichment complete: ENRICHING → QUALIFIED per §6.4
+    if lead["status"] == "enriching":
+        from app.services import state_machine
+
+        with db.get_pool().connection() as conn:
+            state_machine.transition(conn, lead_id, workspace_id, "enriching", "qualified")
     _add_activity(workspace_id, lead_id,
                   f"enriched: owner={owner!r}, email={'found' if email else 'missing'}")
     return {"owner_name": owner, "email": email, "confidence": confidence}
@@ -542,7 +553,7 @@ def run_pipeline(workspace_id: str, lead_id: str) -> dict:
                (SELECT contact_id FROM leads WHERE id=%s)""",
             (lead_id,),
         ).fetchone()
-        contact = row[0] if row else None
+        contact = row["email_verification_status"] if row else None
     if (
         results["stopped_at"] is None
         and contact == "verified"

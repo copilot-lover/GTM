@@ -50,6 +50,25 @@ def classify_role(title: str) -> tuple[str | None, dict]:
     return role_key, {}
 
 
+def detect_description_signals(description: str | None) -> dict:
+    """Deterministic keyword detection of §8.4 signals — works without an LLM."""
+    if not description:
+        return {}
+    d = description.lower()
+    return {
+        "after_hours": any(k in d for k in (
+            "after hours", "after-hours", "evening", "weekend", "on-call")),
+        "phone_heavy": any(k in d for k in (
+            "inbound calls", "incoming calls", "answer calls", "answering calls",
+            "phone calls", "multi-line", "multiline", "50+")),
+        "scheduling_duties": any(k in d for k in (
+            "schedul", "appointment", "book jobs", "dispatch")),
+        "icp_match": any(k in d for k in (
+            "hvac", "plumb", "electric", "roofing", "home services",
+            "heating", "air conditioning")),
+    }
+
+
 QUALIFIER_SYSTEM = (
     "You are the Hiring-Intent Qualifier for Orbit (AI receptionist agency). "
     "Given a job posting, read the DESCRIPTION and detect: after_hours "
@@ -78,6 +97,7 @@ def ingest(req: PostingIn, user: dict = Depends(require_workspace)):
 
     # company resolution from name+geo evidence provided by the adapter
     company_id = None
+    contact_id = None
     if req.company_name and req.contact_email:
         from app.services.phones import normalize_phone
 
@@ -97,28 +117,33 @@ def ingest(req: PostingIn, user: dict = Depends(require_workspace)):
                 ),
             ).fetchone()
             company_id = str(row["id"])
+            contact = conn.execute(
+                """INSERT INTO contacts (workspace_id, company_id, email,
+                       email_verification_status, source_url)
+                   VALUES (%s,%s,%s,'unknown',%s) RETURNING id""",
+                (user["workspace_id"], company_id, req.contact_email.lower(),
+                 req.source_url),
+            ).fetchone()
+            contact_id = str(contact["id"])
 
     role_key, _ = classify_role(req.title)
-    description_signals = {}
-    if req.description_raw and any(
-        k in req.description_raw.lower()
-        for k in ("icp", "hvac", "plumb", "electric", "roofing", "home services")
-    ):
-        description_signals["hint_icp"] = True
+    description_signals = detect_description_signals(req.description_raw)
 
+    days_old = ((datetime.now(timezone.utc) - req.posted_at).days
+                if req.posted_at else None)
     intent_score = scoring.hiring_intent_score(
         role_key=role_key,
-        icp_match=bool(description_signals.get("hint_icp")),
-        after_hours=False,  # refined by AI qualifier below when configured
-        phone_heavy=False,
-        scheduling_duties=False,
+        icp_match=bool(description_signals.get("icp_match")),
+        after_hours=bool(description_signals.get("after_hours")),
+        phone_heavy=bool(description_signals.get("phone_heavy")),
+        scheduling_duties=bool(description_signals.get("scheduling_duties")),
         multiple_openings=False,
-        days_old=((datetime.now(timezone.utc) - req.posted_at).days
-                  if req.posted_at else None),
+        days_old=days_old,
         multiple_locations=False,
     )
 
-    # AI refinement of description signals (cheap tier); degrade gracefully
+    # AI refinement of description signals (cheap tier); degrade gracefully —
+    # the deterministic keyword score always stands.
     ai_rationale = None
     relevant_responsibilities: list = []
     try:
@@ -134,7 +159,6 @@ def ingest(req: PostingIn, user: dict = Depends(require_workspace)):
             workspace_id=user["workspace_id"],
             max_tokens=700,
         )
-        base = intent_score
         extra = scoring.hiring_intent_score(
             role_key=role_key, icp_match=parsed.get("icp_match", False),
             after_hours=parsed.get("after_hours", False),
@@ -143,13 +167,15 @@ def ingest(req: PostingIn, user: dict = Depends(require_workspace)):
             multiple_openings=parsed.get("multiple_openings", False),
             days_old=None, multiple_locations=False,
         )
-        intent_score = max(intent_score, extra) if extra else base
-        if parsed.get("icp_match") and not description_signals.get("hint_icp"):
-            intent_score = min(100, intent_score + 30)
+        intent_score = max(intent_score, extra)
         ai_rationale = parsed.get("rationale")
         relevant_responsibilities = parsed.get("relevant_responsibilities") or []
     except (llm.MissingConfiguration, llm.BudgetExceeded, llm.ReviewRequired):
-        pass  # deterministic score stands; fail-closed at send gate anyway
+        detected = [k for k, v in description_signals.items() if v]
+        ai_rationale = (
+            "deterministic keyword match (LLM unavailable): "
+            + (", ".join(detected) if detected else "no signals found")
+        )
 
     category = scoring.hiring_category(intent_score)
     status = {"very_high": "qualified", "high": "qualified"}.get(category, "new")
@@ -181,10 +207,11 @@ def ingest(req: PostingIn, user: dict = Depends(require_workspace)):
         queue_item = None
         if status == "qualified":
             queue_item = conn.execute(
-                """INSERT INTO hiring_intent_queue (workspace_id, posting_id, company_id)
-                   VALUES (%s,%s,%s)
+                """INSERT INTO hiring_intent_queue (workspace_id, posting_id,
+                       company_id, contact_id)
+                   VALUES (%s,%s,%s,%s)
                    ON CONFLICT (workspace_id, posting_id) DO NOTHING RETURNING *""",
-                (user["workspace_id"], str(posting["id"]), company_id),
+                (user["workspace_id"], str(posting["id"]), company_id, contact_id),
             ).fetchone()
             # create an expiring timing signal as well
             if company_id:
@@ -210,6 +237,14 @@ def ingest(req: PostingIn, user: dict = Depends(require_workspace)):
 
 @router.get("/queue")
 def queue(user: dict = Depends(require_workspace)):
+    # expire stale items BEFORE reading so a single call reflects reality
+    with db.get_pool().connection() as conn:
+        conn.execute(
+            """UPDATE hiring_intent_queue SET status='expired'
+               WHERE workspace_id=%s AND status IN ('ready','approved')
+                 AND created_at < now() - interval '%s days'""",
+            (user["workspace_id"], SIGNAL_EXPIRY_DAYS),
+        )
     with db.get_pool().connection() as conn:
         conn.row_factory = dict_row
         rows = conn.execute(
@@ -224,14 +259,6 @@ def queue(user: dict = Depends(require_workspace)):
                ORDER BY p.intent_score DESC, q.created_at DESC""",
             (user["workspace_id"],),
         ).fetchall()
-    # expire stale items
-    with db.get_pool().connection() as conn:
-        conn.execute(
-            """UPDATE hiring_intent_queue SET status='expired'
-               WHERE workspace_id=%s AND status IN ('ready','approved')
-                 AND created_at < now() - interval '%s days'""",
-            (user["workspace_id"], SIGNAL_EXPIRY_DAYS),
-        )
     return {"items": rows}
 
 

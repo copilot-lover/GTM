@@ -9,13 +9,23 @@ migrations, and n8n workflow exports. To rebuild from git:
 git clone <remote> orbit && cd orbit
 sudo scripts/setup_db.sh          # DB role + extensions
 scripts/migrate.sh                # schema to latest
-cd backend && ~/.local/bin/uv sync # python deps
-npm install -g n8n                 # orchestration
-sudo cp ../deploy/*.service /etc/systemd/system/ && sudo systemctl daemon-reload
+
+# Backend deps + env
+cp backend/.env.example backend/.env   # fill in POSTGRES_PASSWORD, JWT_SECRET, etc.
+
+# Frontend build (API serves frontend/dist)
+cd frontend && npm install && npm run build && cd ..
+
+# Orchestration
+npm install -g n8n                 # then import n8n/workflows/*.json via the n8n UI
+                                   # or copy into ~/.n8n before first start
+
+sudo cp deploy/*.service /etc/systemd/system/ && sudo systemctl daemon-reload
 sudo systemctl enable --now postgresql orbit-api orbit-n8n
+curl http://127.0.0.1:8100/api/health   # must return ok/ok
 ```
 
-If no remote exists yet, recover from the local clone + latest backup (below).
+Test database (for running the suite): see docs/RUNBOOK.md provisioning commands.
 
 ## Database restore
 

@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from_email: str = ""
     smtp_from_name: str = "Orbit"
+    orbit_physical_address: str = ""
 
     ai_daily_budget_usd: float = 10.0
 

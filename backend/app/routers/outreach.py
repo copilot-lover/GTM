@@ -50,8 +50,12 @@ def bulk_approve(req: ApproveIn, user: dict = Depends(require_workspace)):
 
 @router.post("/send/{message_id}")
 def send_now(message_id: str, user: dict = Depends(require_workspace)):
-    outcome = email_service.send_approved(user["workspace_id"], message_id)
-    return outcome
+    try:
+        return email_service.send_approved(user["workspace_id"], message_id)
+    except email_service.SendBlocked as e:
+        from fastapi import HTTPException
+
+        raise HTTPException(409, str(e))
 
 
 @router.post("/process-cadence")

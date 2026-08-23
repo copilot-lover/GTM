@@ -83,10 +83,25 @@ def place_call(*, workspace_id: str, lead_id: str, to_number: str,
             "outside allowed calling window (8 AM - 9 PM prospect local time)"
         )
 
-    # DNC/suppression gate — enforced in code, not UI
+    # DNC/suppression gate — enforced in code, not UI. Normalized phone AND
+    # company scope, so a reformatted number cannot bypass a do_not_call.
     from app.services import suppression
-    result = suppression.check(workspace_id=workspace_id, phone=to_number,
-                               company_id=None)
+    from app.services.phones import normalize_phone
+
+    company_id: str | None = None
+    if lead_id:
+        with db.get_pool().connection() as conn:
+            row = conn.execute(
+                "SELECT company_id FROM leads WHERE id=%s AND workspace_id=%s",
+                (lead_id, workspace_id),
+            ).fetchone()
+            if row:
+                company_id = str(row["company_id"])
+    result = suppression.check(
+        workspace_id=workspace_id,
+        phone=normalize_phone(to_number) or to_number,
+        company_id=company_id,
+    )
     if result.blocked:
         raise TwilioError(f"suppressed: {result.reason}")
 

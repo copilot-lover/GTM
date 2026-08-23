@@ -95,10 +95,15 @@ def can_spam_signature(workspace_id: str) -> str:
         (workspace_id,),
     )
     name = (identity or {}).get("display_name") or "Orbit"
-    address = get_settings().smtp_from_email or "orbit@example.com"
+    address_line = get_settings().orbit_physical_address
+    if not address_line:
+        # CAN-SPAM requires a real physical mailing address — refuse to fake one.
+        raise SendBlocked(
+            "ORBIT_PHYSICAL_ADDRESS not configured; CAN-SPAM signature incomplete"
+        )
     return (
         f"\n\n— {name}, Orbit\n"
-        f"{address}\n"
+        f"{address_line}\n"
         "Reply STOP to opt out of future emails."
     )
 
@@ -138,48 +143,78 @@ def reject(workspace_id: str, message_id: str, reason: str | None = None) -> Non
         )
 
 
-def send_approved(workspace_id: str, message_id: str) -> dict:
-    """Send one approved message through all gates. Returns final status."""
+def send_approved(workspace_id: str, message_id: str,
+                   idempotency_key: str | None = None) -> dict:
+    """Send one approved message through all gates. Returns final status.
+
+    Atomic claim: the status flip to 'sending' happens in a single guarded
+    UPDATE, so concurrent/duplicate invocations cannot double-send.
+    """
+    # Idempotent replay: same key on an already-sent message returns cached result.
+    if idempotency_key:
+        prior = db.execute_one(
+            "SELECT id, provider_message_id FROM messages WHERE idempotency_key=%s AND workspace_id=%s",
+            (idempotency_key, workspace_id),
+        )
+        if prior and str(prior["id"]) != message_id:
+            raise SendBlocked(f"idempotency key already used by message {prior['id']}")
+        if prior and prior["provider_message_id"]:
+            return {"status": "sent", "provider_message_id": prior["provider_message_id"],
+                    "idempotent_replay": True}
+
+    with db.get_pool().connection() as conn:
+        claimed = conn.execute(
+            """UPDATE messages SET status='sending'
+               WHERE id=%s AND workspace_id=%s AND status='approved' RETURNING id""",
+            (message_id, workspace_id),
+        ).fetchone()
     msg = _load_message(workspace_id, message_id)
-
-    # GATE 1: approval record
-    if msg["status"] != "approved":
-        raise SendBlocked(f"message not approved (status={msg['status']})")
-
-    # GATE 2: verified email only
-    if not msg["email"]:
-        raise SendBlocked("lead has no contact email")
-    if msg.get("opt_out_flag"):
-        raise SendBlocked("contact opted out")
-    if msg["email_verification_status"] != "verified":
+    if not claimed or msg["status"] == "sent":
         raise SendBlocked(
-            f"email not provider-verified (status={msg['email_verification_status']})"
+            f"message not claimable (status={msg['status']}) — already sent or not approved"
         )
 
-    # GATE 3: suppression
-    from app.services.suppression import check
-    result = check(
-        workspace_id=workspace_id,
-        email=msg["email"],
-        phone=msg.get("company_phone"),
-        company_id=str(msg["company_id"]) if msg["company_id"] else None,
-    )
-    if result.blocked:
-        raise SendBlocked(result.reason)
+    if idempotency_key:
+        with db.get_pool().connection() as conn:
+            conn.execute("UPDATE messages SET idempotency_key=%s WHERE id=%s",
+                         (idempotency_key, message_id))
 
-    body = (msg["body_text"] or "") + can_spam_signature(workspace_id)
-    settings = get_settings()
-    if not settings.smtp_host:
-        record_failure(message_id, "SMTP not configured")
-        raise SendBlocked("smtp_host not configured")
+    # GATES 2-3 run while claimed; any block returns the claim safely.
+    try:
+        if not msg["email"]:
+            raise SendBlocked("lead has no contact email")
+        if msg.get("opt_out_flag"):
+            raise SendBlocked("contact opted out")
+        if msg["email_verification_status"] != "verified":
+            raise SendBlocked(
+                f"email not provider-verified (status={msg['email_verification_status']})"
+            )
 
-    email = OutboundEmail(
-        to_email=msg["email"],
-        subject=msg["subject"] or "(no subject)",
-        body_text=body,
-        from_email=settings.smtp_from_email,
-        from_name=settings.smtp_from_name,
-    )
+        from app.services.suppression import check
+        result = check(
+            workspace_id=workspace_id,
+            email=msg["email"],
+            phone=msg.get("company_phone"),
+            company_id=str(msg["company_id"]) if msg["company_id"] else None,
+        )
+        if result.blocked:
+            raise SendBlocked(result.reason)
+
+        body = (msg["body_text"] or "") + can_spam_signature(workspace_id)
+        settings = get_settings()
+        if not settings.smtp_host:
+            raise SendBlocked("smtp_host not configured")
+
+        email = OutboundEmail(
+            to_email=msg["email"],
+            subject=msg["subject"] or "(no subject)",
+            body_text=body,
+            from_email=settings.smtp_from_email,
+            from_name=settings.smtp_from_name,
+        )
+    except SendBlocked:
+        _release_claim(message_id)
+        raise
 
     try:
         provider_id = get_provider().send(email)
@@ -190,7 +225,7 @@ def send_approved(workspace_id: str, message_id: str) -> dict:
     with db.get_pool().connection() as conn:
         conn.execute(
             """UPDATE messages SET status='sent', provider_message_id=%s,
-               sent_at=now(), error=NULL WHERE id=%s AND status='approved'""",
+               sent_at=now(), error=NULL WHERE id=%s AND status='sending'""",
             (provider_id, message_id),
         )
         conn.execute(
@@ -201,20 +236,26 @@ def send_approved(workspace_id: str, message_id: str) -> dict:
     return {"status": "sent", "provider_message_id": provider_id}
 
 
-def record_failure(message_id: str, error: str) -> None:
-    """Recoverable failure: message goes back to 'approved' with error noted so it
-    can retry; after 3 failures it lands in a dead-letter state ('failed')."""
+def _release_claim(message_id: str) -> None:
+    """Return a 'sending' claim back to 'approved' when a gate blocks."""
     with db.get_pool().connection() as conn:
-        conn.row_factory = psycopg.rows.dict_row
-        row = conn.execute(
-            """SELECT error FROM messages WHERE id=%s""", (message_id,)
-        ).fetchone()
-        prior_failures = 1 if (row and row["error"]) else 0
-        new_status = "failed" if prior_failures >= 3 else "approved"
         conn.execute(
-            "UPDATE messages SET status=%s, error=%s WHERE id=%s",
-            (new_status, error, message_id),
+            "UPDATE messages SET status='approved' WHERE id=%s AND status='sending'",
+            (message_id,),
         )
+
+
+def record_failure(message_id: str, error: str) -> None:
+    """Recoverable failure: message returns to 'approved' with error noted so it
+    can retry; after 3 failed attempts it lands in a dead-letter state ('failed')."""
+    with db.get_pool().connection() as conn:
+        row = conn.execute(
+            """UPDATE messages
+               SET send_attempts = send_attempts + 1, error=%s,
+                   status = CASE WHEN send_attempts + 1 >= 3 THEN 'failed' ELSE 'approved' END
+               WHERE id=%s RETURNING send_attempts, status""",
+            (error, message_id),
+        ).fetchone()
 
 
 def process_cadence(workspace_id: str) -> dict:
@@ -232,7 +273,12 @@ def process_cadence(workspace_id: str) -> dict:
         ).fetchall()
     for row in due:
         try:
-            outcome = send_approved(workspace_id, str(row["id"]))
+            # deterministic per-message key so scheduler retries cannot double-send
+            outcome = send_approved(
+                workspace_id,
+                str(row["id"]),
+                idempotency_key=f"cadence:{row['id']}",
+            )
             sent.append({"message_id": str(row["id"]), **outcome})
         except SendBlocked as e:
             blocked.append({"message_id": str(row["id"]), "reason": str(e)})
@@ -315,7 +361,12 @@ def kill_switch(conn, workspace_id: str, lead_id: str, reason: str) -> None:
     from app.services.state_machine import can_transition
 
     row = conn.execute("SELECT status FROM leads WHERE id=%s", (lead_id,)).fetchone()
-    current = row[0] if row else "new"
+    if row is None:
+        current = "new"
+    elif isinstance(row, dict):
+        current = row["status"]
+    else:
+        current = row[0]
     target = "responded"
     if can_transition(current, target):
         conn.execute(
@@ -343,22 +394,10 @@ def kill_switch(conn, workspace_id: str, lead_id: str, reason: str) -> None:
 
 
 def classify_reply(workspace_id: str, lead_id: str, inbound_text: str) -> dict:
-    parsed = llm.structured_complete(
-        agent_name="reply_classification_agent",
-        system=(
-            "Classify the inbound prospect reply into exactly one class: "
-            + ", ".join(sorted(REPLY_CLASSES))
-            + ". Reply with JSON only."
-        ),
-        user=inbound_text[:4000],
-        required_keys=["intent_class", "confidence", "suggested_response"],
-        workspace_id=workspace_id,
-    )
-    intent = parsed.get("intent_class", "HUMAN_REQUIRED").upper()
-    if intent not in REPLY_CLASSES:
-        intent = "HUMAN_REQUIRED"
-    routing = CLASS_ROUTING[intent]
-
+    """Reply handling is durable FIRST: persist the inbound message, fire the
+    kill switch, and create the operator task BEFORE any LLM call. If the
+    classifier is unavailable, fail closed to HUMAN_REQUIRED — a reply is
+    never dropped because an external dependency is down."""
     with db.get_pool().connection() as conn:
         conn.execute(
             """INSERT INTO messages (workspace_id, lead_id, channel, direction,
@@ -366,7 +405,35 @@ def classify_reply(workspace_id: str, lead_id: str, inbound_text: str) -> dict:
                VALUES (%s,%s,'email','inbound',%s,'replied')""",
             (workspace_id, lead_id, inbound_text[:10000]),
         )
-        kill_switch(conn, workspace_id, lead_id, f"reply classified {intent}")
+        kill_switch(conn, workspace_id, lead_id, "inbound reply received")
+
+    intent = None
+    suggested = None
+    confidence = 0.0
+    try:
+        parsed = llm.structured_complete(
+            agent_name="reply_classification_agent",
+            system=(
+                "Classify the inbound prospect reply into exactly one class: "
+                + ", ".join(sorted(REPLY_CLASSES))
+                + ". Reply with JSON only."
+            ),
+            user=inbound_text[:4000],
+            required_keys=["intent_class", "confidence", "suggested_response"],
+            workspace_id=workspace_id,
+        )
+        intent = parsed.get("intent_class", "").upper()
+        if intent in REPLY_CLASSES:
+            suggested = parsed.get("suggested_response")
+            confidence = float(parsed.get("confidence", 0))
+    except (llm.MissingConfiguration, llm.BudgetExceeded, llm.ReviewRequired):
+        pass
+
+    if intent not in REPLY_CLASSES:
+        intent = "HUMAN_REQUIRED"
+    routing = CLASS_ROUTING[intent]
+
+    with db.get_pool().connection() as conn:
         conn.execute(
             """INSERT INTO tasks (workspace_id, lead_id, type, due_at, created_by)
                VALUES (%s,%s,%s,now(),'agent')""",
@@ -388,6 +455,6 @@ def classify_reply(workspace_id: str, lead_id: str, inbound_text: str) -> dict:
     return {
         "intent_class": intent,
         "routing": routing[0],
-        "suggested_response": parsed.get("suggested_response"),
-        "confidence": float(parsed.get("confidence", 0)),
+        "suggested_response": suggested,
+        "confidence": confidence,
     }

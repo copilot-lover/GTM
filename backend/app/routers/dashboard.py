@@ -63,6 +63,8 @@ def dashboard(user: dict = Depends(require_workspace)):
 def system_health(user: dict = Depends(require_workspace)):
     import os
 
+    import httpx
+
     from app.services import twilio_service
 
     checks = {}
@@ -73,12 +75,25 @@ def system_health(user: dict = Depends(require_workspace)):
     checks["llm_anthropic"] = ("configured" if os.environ.get("ANTHROPIC_API_KEY")
                                else "missing")
     checks["smtp"] = "configured" if os.environ.get("SMTP_HOST") else "missing"
+
+    # n8n orchestration liveness (spec §19.6: status flips within one poll)
+    try:
+        resp = httpx.get(
+            f"http://{os.environ.get('N8N_HOST', '127.0.0.1')}:"
+            f"{os.environ.get('N8N_PORT', '5678')}/healthz",
+            timeout=2,
+        )
+        checks["n8n"] = "ok" if resp.status_code == 200 else f"http_{resp.status_code}"
+    except Exception:
+        checks["n8n"] = "down"
+
     try:
         with db.get_pool().connection() as conn:
             row = conn.execute(
-                "SELECT count(*) FROM agent_runs WHERE status='failed' AND finished_at > now() - interval '24 hours'"
+                """SELECT count(*) AS failures FROM agent_runs
+                   WHERE status='failed' AND finished_at > now() - interval '24 hours'"""
             ).fetchone()
-            checks["agent_failures_24h"] = row[0]
+            checks["agent_failures_24h"] = row["failures"]
     except Exception:
         checks["agent_failures_24h"] = -1
     return {"status": "ok", "checks": checks}

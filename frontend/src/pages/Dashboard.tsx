@@ -7,16 +7,29 @@ export default function Dashboard() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([api("/dashboard"), api("/system-health")])
-      .then(([d, h]) => { setData(d); setHealth(h); })
-      .catch((e) => setError(e.message));
+    let cancelled = false;
+    async function poll() {
+      try {
+        const [d, h] = await Promise.all([api("/dashboard"), api("/system-health")]);
+        if (!cancelled) { setData(d); setHealth(h); setError(""); }
+      } catch (e: any) {
+        if (!cancelled) setError(e.message);
+      }
+    }
+    poll();
+    const timer = setInterval(poll, 30000); // spec §19.6: flip within one poll interval
+    return () => { cancelled = true; clearInterval(timer); };
   }, []);
 
   if (error) return <p className="text-red-400">{error} — <button className="underline" onClick={() => location.reload()}>retry</button></p>;
   if (!data) return <div className="animate-pulse text-zinc-600">loading…</div>;
 
   const degraded = health && Object.entries(health.checks).some(
-    ([k, v]) => k !== "database" && v !== "ok" && v !== "configured"
+    ([k, v]) =>
+      k !== "database" &&
+      k !== "agent_failures_24h" &&
+      v !== "ok" &&
+      v !== "configured"
   );
 
   return (
