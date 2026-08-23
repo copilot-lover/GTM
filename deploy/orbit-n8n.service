@@ -1,0 +1,17 @@
+[Unit]
+Description=n8n workflow orchestration
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+Environment=N8N_HOST=127.0.0.1
+Environment=N8N_PORT=5678
+Environment=N8N_USER_FOLDER=/home/ubuntu/GTM/orbit/n8n/data
+Environment=GENERIC_TIMEZONE=America/New_York
+ExecStart=/usr/bin/n8n start
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

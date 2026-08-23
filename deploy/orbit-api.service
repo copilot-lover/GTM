@@ -1,0 +1,14 @@
+[Unit]
+Description=Orbit GTM OS API
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/GTM/orbit/backend
+ExecStart=/home/ubuntu/.local/bin/uv run uvicorn app.main:app --host 127.0.0.1 --port 8100 --workers 2
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

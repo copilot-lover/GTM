@@ -1,0 +1,23 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Local data / logs
+logs/
+backups/
+n8n/data/
+*.log
+
+# OS
+.DS_Store
