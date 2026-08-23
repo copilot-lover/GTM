@@ -198,10 +198,13 @@ def db_psycopg_rows():
 
 def _suppress_lead(conn, workspace_id: str, lead_id: str) -> None:
     from app.services import suppression
+    from app.services.phones import normalize_phone
     from app.services.state_machine import can_transition
 
     row = conn.execute(
-        """SELECT l.company_id, c.email, co.phone FROM leads l
+        """SELECT l.company_id, c.email, c.phone AS contact_phone,
+                  co.phone AS company_phone
+           FROM leads l
            JOIN companies co ON co.id=l.company_id
            LEFT JOIN contacts c ON c.id=l.contact_id
            WHERE l.id=%s""",
@@ -214,10 +217,15 @@ def _suppress_lead(conn, workspace_id: str, lead_id: str) -> None:
     if row["email"]:
         suppression.add(conn, workspace_id=workspace_id, scope="email",
                         value=row["email"], reason="do_not_call disposition")
-    if row["phone"]:
-        suppression.add(conn, workspace_id=workspace_id, scope="phone",
-                        value=row["phone"], reason="do_not_call disposition")
-    current = conn.execute("SELECT status FROM leads WHERE id=%s", (lead_id,)).fetchone()[0]
-    if can_transition(current, "do_not_call"):
+    for phone in (row.get("contact_phone"), row.get("company_phone")):
+        if phone:
+            suppression.add(conn, workspace_id=workspace_id, scope="phone",
+                            value=normalize_phone(phone) or phone,
+                            reason="do_not_call disposition")
+    current = conn.execute(
+        "SELECT status FROM leads WHERE id=%s", (lead_id,)
+    ).fetchone()
+    current_status = current["status"] if isinstance(current, dict) else current[0]
+    if can_transition(current_status, "do_not_call"):
         conn.execute("UPDATE leads SET status='do_not_call', updated_at=now() WHERE id=%s",
                      (lead_id,))

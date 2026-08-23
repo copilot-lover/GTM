@@ -1,4 +1,5 @@
 import psycopg_pool
+from psycopg.rows import dict_row
 
 from app.config import get_settings
 
@@ -16,7 +17,10 @@ def get_conninfo() -> str:
 def get_pool() -> psycopg_pool.ConnectionPool:
     global _pool
     if _pool is None:
-        _pool = psycopg_pool.ConnectionPool(get_conninfo(), min_size=1, max_size=10, open=True)
+        _pool = psycopg_pool.ConnectionPool(
+            get_conninfo(), min_size=1, max_size=10, open=True,
+            kwargs={"row_factory": dict_row},
+        )
     return _pool
 
 

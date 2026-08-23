@@ -77,12 +77,12 @@ def check_budget(workspace_id: str | None) -> None:
     limit = float(os.environ.get("AI_DAILY_BUDGET_USD", "10"))
     with db.get_pool().connection() as conn:
         row = conn.execute(
-            """SELECT COALESCE(SUM(cost_usd),0) FROM agent_runs
+            """SELECT COALESCE(SUM(cost_usd),0) AS spent FROM agent_runs
                WHERE started_at >= date_trunc('day', now())
                AND (%s::uuid IS NULL OR workspace_id = %s::uuid)""",
             (workspace_id, workspace_id),
         ).fetchone()
-    spent = float(row[0] or 0)
+    spent = float(row["spent"] or 0)
     if spent >= limit:
         raise BudgetExceeded(f"daily AI budget spent: ${spent:.2f} / ${limit:.2f}")
 

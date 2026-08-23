@@ -44,11 +44,12 @@ def create_lead(req: LeadIn, user: dict = Depends(require_workspace)):
     with db.get_pool().connection() as conn:
         conn.row_factory = dict_row
         existing_lead = conn.execute(
-            """SELECT id FROM leads WHERE workspace_id=%s AND company_id=%s LIMIT 1""",
+            """SELECT id, company_id FROM leads WHERE workspace_id=%s AND company_id=%s LIMIT 1""",
             (user["workspace_id"], company_id),
         ).fetchone()
         if existing_lead:
-            return {"id": existing_lead["id"], "deduped": True}
+            return {"id": existing_lead["id"],
+                    "company_id": existing_lead["company_id"], "deduped": True}
         lead = conn.execute(
             """INSERT INTO leads (workspace_id, company_id, source, source_url)
                VALUES (%s,%s,%s,%s) RETURNING *""",

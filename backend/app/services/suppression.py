@@ -41,7 +41,7 @@ def check(*, workspace_id: str, email: str | None = None,
     if row:
         return SuppressionResult(
             blocked=True,
-            reason=f"suppressed {row[0]}:{row[1]} — {row[2]}",
+            reason=f"suppressed {row['scope']}:{row['value']} — {row['reason']}",
         )
     return SuppressionResult(blocked=False)
 

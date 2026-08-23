@@ -74,8 +74,8 @@ def _load_message(workspace_id: str, message_id: str) -> dict:
         conn.row_factory = psycopg.rows.dict_row
         row = conn.execute(
             """SELECT m.*, l.contact_id, l.company_id, l.status AS lead_status,
-                      c.email, c.opt_out_flag, co.phone AS company_phone,
-                      co.business_name
+                      c.email, c.opt_out_flag, c.email_verification_status,
+                      co.phone AS company_phone, co.business_name
                FROM messages m
                JOIN leads l ON l.id = m.lead_id
                LEFT JOIN contacts c ON c.id = l.contact_id
@@ -314,17 +314,13 @@ def kill_switch(conn, workspace_id: str, lead_id: str, reason: str) -> None:
     """Any reply pauses ALL automation for the lead, purges call queues, alerts."""
     from app.services.state_machine import can_transition
 
-    conn.row_factory = psycopg.rows.dict_row
     row = conn.execute("SELECT status FROM leads WHERE id=%s", (lead_id,)).fetchone()
-    current = row["status"] if row else "new"
+    current = row[0] if row else "new"
     target = "responded"
     if can_transition(current, target):
         conn.execute(
             "UPDATE leads SET status=%s, updated_at=now() WHERE id=%s", (target, lead_id)
         )
-    else:
-        # already past responded; still purge queues below
-        pass
     # purge from all calling sessions
     conn.execute(
         """DELETE FROM session_leads

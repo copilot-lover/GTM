@@ -23,6 +23,13 @@ TRANSITIONS: dict[str, set[str]] = {
     "archived": set(),
 }
 
+
+# Hard compliance override: a do_not_call decision is valid from any
+# non-terminal state (suppression happens immediately everywhere).
+for _s, _targets in TRANSITIONS.items():
+    if _s not in ("won", "rejected", "do_not_call", "archived"):
+        _targets.add("do_not_call")
+
 TERMINAL = {s for s, nxt in TRANSITIONS.items() if not nxt}
 
 

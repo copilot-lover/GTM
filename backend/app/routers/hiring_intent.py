@@ -2,7 +2,7 @@
 No code path here touches the dialer, SMS, or normal cold outreach."""
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -86,9 +86,9 @@ def ingest(req: PostingIn, user: dict = Depends(require_workspace)):
             row = conn.execute(
                 """INSERT INTO companies (workspace_id, business_name, website, phone,
                        city, state, source, source_url)
-                   VALUES (%s,%s,%s,%s,%s,%s,'job_posting',%s)
+                   VALUES (%s,%s,%s,%s,%s,NULL,'job_posting',%s)
                    ON CONFLICT (workspace_id, lower(business_name),
-                                lower(coalesce(city,'')), lower(coalesce(state,'')))
+                                coalesce(city,''), coalesce(state,''))
                    DO UPDATE SET updated_at=now() RETURNING id""",
                 (
                     user["workspace_id"], req.company_name, req.company_website,
