@@ -187,3 +187,64 @@ class TestFailClosed:
         conn.close()
         assert any("blocked" in r for r in row[0])
         assert row[1].get("icp_signals") is None  # no fabricated scoring evidence
+
+
+class TestUnverifiedEmailGate:
+    def test_outreach_ready_requires_verified_email_both_directions(
+        self, db_url, qualified_env, monkeypatch
+    ):
+        """§19.2 invariant locked both ways: dns_ok never reaches outreach_ready;
+        flipping to verified unlocks the transition on re-run."""
+        from app.services import llm
+
+        ws, lead_id = qualified_env
+
+        patch_llm(monkeypatch, {
+            "qualification_agent": qualify_response({
+                "single_location": True, "owner_visible": True,
+                "residential_focus": True, "simple_site": True,
+                "local_service_area": True}),
+            "enrichment_agent": {
+                "owner_name": "Pat", "email": "pat@acme.test",
+                "employee_estimate": None, "confidence": 90,
+                "source_notes": "about page"},
+            "website_audit_agent": AUDIT_RESPONSE,
+            "offer_selection_agent": OFFER_RESPONSE,
+            "email_personalization_agent": PERSONALIZE_RESPONSE,
+            "email_critic_agent": PERSONALIZE_RESPONSE,
+        })
+
+        # contact starts at 'verified' in fixture; downgrade to dns_ok first
+        conn = psycopg.connect(db_url, autocommit=True)
+        conn.execute(
+            """UPDATE contacts SET email_verification_status='dns_ok'
+               WHERE id=(SELECT contact_id FROM leads WHERE id=%s)""",
+            (lead_id,),
+        )
+        conn.close()
+
+        result = pipeline.run_pipeline(ws, lead_id)
+        assert result["stopped_at"] is None  # all stages ran
+        conn = psycopg.connect(db_url, autocommit=True)
+        status = conn.execute(
+            "SELECT status FROM leads WHERE id=%s", (lead_id,)
+        ).fetchone()[0]
+        conn.close()
+        assert status != "outreach_ready"  # gate held
+
+        # flip to verified -> re-run transitions to outreach_ready
+        conn = psycopg.connect(db_url, autocommit=True)
+        conn.execute(
+            """UPDATE contacts SET email_verification_status='verified'
+               WHERE id=(SELECT contact_id FROM leads WHERE id=%s)""",
+            (lead_id,),
+        )
+        conn.close()
+        result2 = pipeline.run_pipeline(ws, lead_id)
+        assert result2["stopped_at"] is None
+        conn = psycopg.connect(db_url, autocommit=True)
+        status2 = conn.execute(
+            "SELECT status FROM leads WHERE id=%s", (lead_id,)
+        ).fetchone()[0]
+        conn.close()
+        assert status2 == "outreach_ready"

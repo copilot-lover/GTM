@@ -270,6 +270,13 @@ def verify_email(workspace_id: str, lead_id: str, email: str) -> dict:
             (lead_id, workspace_id),
         ).fetchone()
         if lead and lead["contact_id"]:
+            # never downgrade a provider-verified contact by re-running syntax/DNS checks
+            existing = conn.execute(
+                "SELECT email_verification_status FROM contacts WHERE id=%s",
+                (str(lead["contact_id"]),),
+            ).fetchone()
+            if existing and existing["email_verification_status"] == "verified":
+                return {"status": "verified", "confidence": None, "unchanged": True}
             conn.execute(
                 """UPDATE contacts SET email=%s, email_verification_status=%s,
                    email_verification_confidence=%s, email_verification_provider='syntax_dns',
@@ -522,7 +529,7 @@ def create_draft_message(workspace_id: str, lead_id: str, parsed: dict, body_tex
                RETURNING id""",
             (workspace_id, lead_id, parsed.get("subject"), body_text),
         ).fetchone()
-    return str(row[0])
+    return str(row["id"])
 
 
 # ---------------------------------------------------------------- runner
@@ -562,6 +569,7 @@ def run_pipeline(workspace_id: str, lead_id: str) -> dict:
 
         with db.get_pool().connection() as conn:
             fresh = conn.execute("SELECT status FROM leads WHERE id=%s", (lead_id,)).fetchone()
-            if fresh and state_machine.can_transition(fresh[0], "outreach_ready"):
-                state_machine.transition(conn, lead_id, workspace_id, fresh[0], "outreach_ready")
+            current = fresh["status"] if fresh else None
+            if current and state_machine.can_transition(current, "outreach_ready"):
+                state_machine.transition(conn, lead_id, workspace_id, current, "outreach_ready")
     return results

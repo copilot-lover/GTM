@@ -186,7 +186,7 @@ export default function Dialer() {
 
       {error && <p className="text-red-400 text-sm">{error}</p>}
 
-      {callState === "live" && activeLead && (
+      {callState !== "idle" && activeLead && (
         <div className="bg-[#14161b] border border-[#22c55e]/40 rounded p-4 space-y-3">
           <div className="flex justify-between">
             <span className="font-medium">
