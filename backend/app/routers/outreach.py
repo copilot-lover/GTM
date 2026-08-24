@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from psycopg.rows import dict_row
 
@@ -48,20 +48,45 @@ def bulk_approve(req: ApproveIn, user: dict = Depends(require_workspace)):
     return {"results": results}
 
 
-@router.post("/send/{message_id}")
-def send_now(message_id: str, user: dict = Depends(require_workspace)):
-    try:
-        return email_service.send_approved(user["workspace_id"], message_id)
-    except email_service.SendBlocked as e:
-        from fastapi import HTTPException
+@router.get("/due-sends")
+def due_sends(user: dict = Depends(require_workspace)):
+    """n8n polls this; each message must pass POST /claim before transport."""
+    return {"items": email_service.due_sends(user["workspace_id"])}
 
+
+class ClaimIn(BaseModel):
+    idempotency_key: str | None = None
+
+
+@router.post("/claim/{message_id}")
+def claim(message_id: str, req: ClaimIn, user: dict = Depends(require_workspace)):
+    """Gates + atomic claim; returns the payload for n8n's Send Email node."""
+    try:
+        return email_service.claim_for_send(
+            user["workspace_id"], message_id, req.idempotency_key
+        )
+    except email_service.SendBlocked as e:
         raise HTTPException(409, str(e))
 
 
-@router.post("/process-cadence")
-def process_cadence(user: dict = Depends(require_workspace)):
-    """n8n schedule trigger hits this with a service token."""
-    return email_service.process_cadence(user["workspace_id"])
+class SendResultIn(BaseModel):
+    ok: bool
+    provider_message_id: str | None = None
+    error: str | None = None
+
+
+@router.post("/apply/send-result")
+def apply_send_result(message_id: str, req: SendResultIn,
+                      user: dict = Depends(require_workspace)):
+    """n8n reports transport outcome; backend owns resulting state."""
+    try:
+        return email_service.apply_send_result(
+            user["workspace_id"], message_id,
+            ok=req.ok, provider_message_id=req.provider_message_id,
+            error=req.error,
+        )
+    except email_service.SendBlocked as e:
+        raise HTTPException(409, str(e))
 
 
 class ReviewReplyIn(BaseModel):
@@ -71,8 +96,25 @@ class ReviewReplyIn(BaseModel):
 
 @router.post("/classify-reply")
 def classify_reply_route(req: ReviewReplyIn, user: dict = Depends(require_workspace)):
-    return email_service.classify_reply(
-        user["workspace_id"],
-        req.lead_id,
-        req.text,
+    """Durable intake: persists reply, fires kill switch, emits reply.received
+    for n8n classification. Never calls an LLM inline."""
+    return email_service.classify_reply(user["workspace_id"], req.lead_id, req.text)
+
+
+class ClassificationIn(BaseModel):
+    lead_id: str
+    intent_class: str
+    confidence: float = 0.0
+    suggested_response: str | None = None
+
+
+@router.post("/apply/classification")
+def apply_classification(req: ClassificationIn,
+                         user: dict = Depends(require_workspace)):
+    """n8n posts the LLM classification result; backend owns routing."""
+    return email_service.apply_classification(
+        user["workspace_id"], req.lead_id,
+        intent_class=req.intent_class,
+        confidence=req.confidence,
+        suggested_response=req.suggested_response,
     )

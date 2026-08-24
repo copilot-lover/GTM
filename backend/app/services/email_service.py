@@ -10,17 +10,12 @@ Hard gates enforced here, not in the UI:
 """
 
 import json
-import smtplib
-from dataclasses import dataclass
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.utils import formataddr
 
 import psycopg.rows
 
 import app.db as db
 from app.config import get_settings
-from app.services import llm
+from app.services import events
 
 
 class SendBlocked(Exception):
@@ -28,44 +23,6 @@ class SendBlocked(Exception):
 
 
 # ---------------------------------------------------------------- providers
-
-@dataclass
-class OutboundEmail:
-    to_email: str
-    subject: str
-    body_text: str
-    from_email: str
-    from_name: str
-
-
-class EmailProvider:
-    def send(self, email: OutboundEmail) -> str:
-        """Returns provider_message_id. Raises on failure."""
-        raise NotImplementedError
-
-
-class SMTPProvider(EmailProvider):
-    """Basic authenticated SMTP. Failures raise — caller records + retries."""
-
-    def send(self, email: OutboundEmail) -> str:
-        s = get_settings()
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = email.subject
-        msg["From"] = formataddr((email.from_name, email.from_email))
-        msg["To"] = email.to_email
-        msg.attach(MIMEText(email.body_text, "plain"))
-        # simple text wrapper as "html" part is optional; plain text preferred for cold email
-        with smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=30) as server:
-            server.starttls()
-            if s.smtp_user:
-                server.login(s.smtp_user, s.smtp_password)
-            server.sendmail(email.from_email, [email.to_email], msg.as_string())
-        return f"smtp:{email.to_email}:{id(msg)}"
-
-
-def get_provider() -> EmailProvider:
-    return SMTPProvider()
-
 
 # ---------------------------------------------------------------- service
 
@@ -124,6 +81,13 @@ def approve(workspace_id: str, message_id: str, user_id: str) -> None:
                WHERE id=%s""",
             (user_id, message_id),
         )
+        from app.services import events
+
+        events.emit(
+            conn, event_type="message.approved",
+            payload={"message_id": message_id},
+            workspace_id=workspace_id,
+        )
 
 
 def reject(workspace_id: str, message_id: str, reason: str | None = None) -> None:
@@ -143,13 +107,10 @@ def reject(workspace_id: str, message_id: str, reason: str | None = None) -> Non
         )
 
 
-def send_approved(workspace_id: str, message_id: str,
+def claim_for_send(workspace_id: str, message_id: str,
                    idempotency_key: str | None = None) -> dict:
-    """Send one approved message through all gates. Returns final status.
-
-    Atomic claim: the status flip to 'sending' happens in a single guarded
-    UPDATE, so concurrent/duplicate invocations cannot double-send.
-    """
+    """Gates + atomic claim. Returns the exact payload n8n's Send Email node
+    should transport. The backend never talks SMTP itself (spec §10.3)."""
     # Idempotent replay: same key on an already-sent message returns cached result.
     if idempotency_key:
         prior = db.execute_one(
@@ -179,7 +140,7 @@ def send_approved(workspace_id: str, message_id: str,
             conn.execute("UPDATE messages SET idempotency_key=%s WHERE id=%s",
                          (idempotency_key, message_id))
 
-    # GATES 2-3 run while claimed; any block returns the claim safely.
+    # GATES run while claimed; any block returns the claim safely.
     try:
         if not msg["email"]:
             raise SendBlocked("lead has no contact email")
@@ -201,39 +162,43 @@ def send_approved(workspace_id: str, message_id: str,
             raise SendBlocked(result.reason)
 
         body = (msg["body_text"] or "") + can_spam_signature(workspace_id)
-        settings = get_settings()
-        if not settings.smtp_host:
-            raise SendBlocked("smtp_host not configured")
-
-        email = OutboundEmail(
-            to_email=msg["email"],
-            subject=msg["subject"] or "(no subject)",
-            body_text=body,
-            from_email=settings.smtp_from_email,
-            from_name=settings.smtp_from_name,
-        )
     except SendBlocked:
         _release_claim(message_id)
         raise
 
-    try:
-        provider_id = get_provider().send(email)
-    except Exception as e:
-        record_failure(message_id, f"{type(e).__name__}: {e}")
-        raise
+    return {
+        "message_id": message_id,
+        "to_email": msg["email"],
+        "subject": msg["subject"] or "(no subject)",
+        "body_text": body,
+        "from_email": get_settings().smtp_from_email,
+        "from_name": get_settings().smtp_from_name,
+        "idempotency_key": idempotency_key,
+    }
 
-    with db.get_pool().connection() as conn:
-        conn.execute(
-            """UPDATE messages SET status='sent', provider_message_id=%s,
-               sent_at=now(), error=NULL WHERE id=%s AND status='sending'""",
-            (provider_id, message_id),
-        )
-        conn.execute(
-            """INSERT INTO activities (workspace_id, lead_id, type, summary, actor)
-               VALUES (%s,%s,'email',%s,'system')""",
-            (workspace_id, msg["lead_id"], f"email sent: {msg['subject']}"),
-        )
-    return {"status": "sent", "provider_message_id": provider_id}
+
+def apply_send_result(workspace_id: str, message_id: str, *, ok: bool,
+                      provider_message_id: str | None = None,
+                      error: str | None = None) -> dict:
+    """n8n reports the transport outcome; backend owns the resulting state."""
+    if ok:
+        with db.get_pool().connection() as conn:
+            row = conn.execute(
+                """UPDATE messages SET status='sent', provider_message_id=%s,
+                   sent_at=now(), error=NULL WHERE id=%s AND status='sending'
+                   RETURNING lead_id""",
+                (provider_message_id, message_id),
+            ).fetchone()
+            if row is None:
+                raise SendBlocked("message not in sending state")
+            conn.execute(
+                """INSERT INTO activities (workspace_id, lead_id, type, summary, actor)
+                   VALUES (%s,%s,'email',%s,'system')""",
+                (workspace_id, row["lead_id"], "email sent via n8n transport"),
+            )
+        return {"status": "sent"}
+    record_failure(message_id, error or "transport failure")
+    return {"status": "retry_scheduled"}
 
 
 def _release_claim(message_id: str) -> None:
@@ -258,34 +223,18 @@ def record_failure(message_id: str, error: str) -> None:
         ).fetchone()
 
 
-def process_cadence(workspace_id: str) -> dict:
-    """n8n calls this on schedule: sends approved+scheduled messages whose time
-    has come, and advances follow-up sequences per campaign cadence offsets."""
-    sent, blocked, failed = [], [], []
+def due_sends(workspace_id: str, limit: int = 25) -> list[dict]:
+    """n8n polls this on schedule and claims each message for transport."""
     with db.get_pool().connection() as conn:
         conn.row_factory = psycopg.rows.dict_row
-        due = conn.execute(
+        rows = conn.execute(
             """SELECT id FROM messages
                WHERE workspace_id=%s AND status='approved'
                  AND (scheduled_send_at IS NULL OR scheduled_send_at <= now())
                ORDER BY created_at LIMIT %s""",
-            (workspace_id, 50),
+            (workspace_id, limit),
         ).fetchall()
-    for row in due:
-        try:
-            # deterministic per-message key so scheduler retries cannot double-send
-            outcome = send_approved(
-                workspace_id,
-                str(row["id"]),
-                idempotency_key=f"cadence:{row['id']}",
-            )
-            sent.append({"message_id": str(row["id"]), **outcome})
-        except SendBlocked as e:
-            blocked.append({"message_id": str(row["id"]), "reason": str(e)})
-        except Exception as e:
-            failed.append({"message_id": str(row["id"]), "error": f"{type(e).__name__}: {e}"})
-    return {"sent": len(sent), "blocked": len(blocked), "failed": len(failed),
-            "details": {"blocked": blocked, "failed": failed}}
+    return [{"message_id": str(r["id"])} for r in rows]
 
 
 def schedule_followups(workspace_id: str, lead_id: str, campaign_id: str | None,
@@ -395,9 +344,8 @@ def kill_switch(conn, workspace_id: str, lead_id: str, reason: str) -> None:
 
 def classify_reply(workspace_id: str, lead_id: str, inbound_text: str) -> dict:
     """Reply handling is durable FIRST: persist the inbound message, fire the
-    kill switch, and create the operator task BEFORE any LLM call. If the
-    classifier is unavailable, fail closed to HUMAN_REQUIRED — a reply is
-    never dropped because an external dependency is down."""
+    kill switch, create a HUMAN_REQUIRED task, and emit reply.received so n8n
+    can orchestrate LLM classification. The backend never calls an LLM."""
     with db.get_pool().connection() as conn:
         conn.execute(
             """INSERT INTO messages (workspace_id, lead_id, channel, direction,
@@ -406,29 +354,24 @@ def classify_reply(workspace_id: str, lead_id: str, inbound_text: str) -> dict:
             (workspace_id, lead_id, inbound_text[:10000]),
         )
         kill_switch(conn, workspace_id, lead_id, "inbound reply received")
-
-    intent = None
-    suggested = None
-    confidence = 0.0
-    try:
-        parsed = llm.structured_complete(
-            agent_name="reply_classification_agent",
-            system=(
-                "Classify the inbound prospect reply into exactly one class: "
-                + ", ".join(sorted(REPLY_CLASSES))
-                + ". Reply with JSON only."
-            ),
-            user=inbound_text[:4000],
-            required_keys=["intent_class", "confidence", "suggested_response"],
+        conn.execute(
+            """INSERT INTO tasks (workspace_id, lead_id, type, due_at, created_by)
+               VALUES (%s,%s,'handle HUMAN_REQUIRED: always human',now(),'system')""",
+            (workspace_id, lead_id),
+        )
+        events.emit(
+            conn, event_type="reply.received",
+            payload={"lead_id": lead_id, "text": inbound_text[:8000]},
             workspace_id=workspace_id,
         )
-        intent = parsed.get("intent_class", "").upper()
-        if intent in REPLY_CLASSES:
-            suggested = parsed.get("suggested_response")
-            confidence = float(parsed.get("confidence", 0))
-    except (llm.MissingConfiguration, llm.BudgetExceeded, llm.ReviewRequired):
-        pass
+    return {"queued_for_classification": True, "kill_switch": "fired"}
 
+
+def apply_classification(workspace_id: str, lead_id: str, *, intent_class: str,
+                         confidence: float = 0.0,
+                         suggested_response: str | None = None) -> dict:
+    """n8n posts the LLM classification result; backend owns routing."""
+    intent = intent_class.upper()
     if intent not in REPLY_CLASSES:
         intent = "HUMAN_REQUIRED"
     routing = CLASS_ROUTING[intent]
@@ -441,8 +384,6 @@ def classify_reply(workspace_id: str, lead_id: str, inbound_text: str) -> dict:
         )
     if intent == "NOT_INTERESTED":
         with db.get_pool().connection() as conn:
-            from app.services import suppression as supp
-
             conn.row_factory = psycopg.rows.dict_row
             row = conn.execute(
                 """SELECT c.email FROM leads l JOIN contacts c ON c.id=l.contact_id
@@ -450,11 +391,13 @@ def classify_reply(workspace_id: str, lead_id: str, inbound_text: str) -> dict:
                 (lead_id,),
             ).fetchone()
             if row and row["email"]:
+                from app.services import suppression as supp
+
                 supp.add(conn, workspace_id=workspace_id, scope="email",
                          value=row["email"], reason="not interested reply")
     return {
         "intent_class": intent,
         "routing": routing[0],
-        "suggested_response": suggested,
+        "suggested_response": suggested_response,
         "confidence": confidence,
     }

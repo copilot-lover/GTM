@@ -8,7 +8,7 @@ from app.routers import (
     hiring_intent,
     leads,
     outreach,
-    pipeline_admin,
+    pipeline_ops,
     scrape,
 )
 
@@ -17,7 +17,7 @@ routes = [
     auth.router,
     companies.router,
     leads.router,
-    pipeline_admin.router,
+    pipeline_ops.router,
     outreach.router,
     dialer.router,
     hiring_intent.router,

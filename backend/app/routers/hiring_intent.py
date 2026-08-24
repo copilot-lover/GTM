@@ -10,7 +10,7 @@ from psycopg.rows import dict_row
 
 import app.db as db
 from app.core.deps import require_workspace
-from app.services import llm, scoring
+from app.services import scoring
 
 router = APIRouter(prefix="/hiring-intent", tags=["hiring-intent"])
 
@@ -142,40 +142,11 @@ def ingest(req: PostingIn, user: dict = Depends(require_workspace)):
         multiple_locations=False,
     )
 
-    # AI refinement of description signals (cheap tier); degrade gracefully —
-    # the deterministic keyword score always stands.
-    ai_rationale = None
+    ai_rationale = (
+        "deterministic keyword match: "
+        + (", ".join(k for k, v in description_signals.items() if v) or "no signals found")
+    )
     relevant_responsibilities: list = []
-    try:
-        parsed = llm.structured_complete(
-            agent_name="hiring_intent_qualifier",
-            system=QUALIFIER_SYSTEM,
-            user=json.dumps({
-                "title": req.title,
-                "company": req.company_name,
-                "description": (req.description_raw or "")[:8000],
-            }),
-            required_keys=QUALIFIER_KEYS[:6] + ["rationale"],
-            workspace_id=user["workspace_id"],
-            max_tokens=700,
-        )
-        extra = scoring.hiring_intent_score(
-            role_key=role_key, icp_match=parsed.get("icp_match", False),
-            after_hours=parsed.get("after_hours", False),
-            phone_heavy=parsed.get("phone_heavy", False),
-            scheduling_duties=parsed.get("scheduling_duties", False),
-            multiple_openings=parsed.get("multiple_openings", False),
-            days_old=None, multiple_locations=False,
-        )
-        intent_score = max(intent_score, extra)
-        ai_rationale = parsed.get("rationale")
-        relevant_responsibilities = parsed.get("relevant_responsibilities") or []
-    except (llm.MissingConfiguration, llm.BudgetExceeded, llm.ReviewRequired):
-        detected = [k for k, v in description_signals.items() if v]
-        ai_rationale = (
-            "deterministic keyword match (LLM unavailable): "
-            + (", ".join(detected) if detected else "no signals found")
-        )
 
     category = scoring.hiring_category(intent_score)
     status = {"very_high": "qualified", "high": "qualified"}.get(category, "new")
@@ -225,6 +196,16 @@ def ingest(req: PostingIn, user: dict = Depends(require_workspace)):
                         intent_score, SIGNAL_EXPIRY_DAYS,
                     ),
                 )
+    from app.services import events
+
+    with db.get_pool().connection() as conn:
+        events.emit(
+            conn, event_type="hiring.refine_requested",
+            payload={"posting_id": str(posting["id"]),
+                     "title": req.title,
+                     "description": (req.description_raw or "")[:8000]},
+            workspace_id=user["workspace_id"],
+        )
     return {
         "id": str(posting["id"]),
         "duplicate": False,
@@ -284,43 +265,23 @@ def draft_email(req: DraftIn, user: dict = Depends(require_workspace)):
         raise HTTPException(404, "queue item not found or not actionable")
 
     excerpt = (item["description_raw"] or "")[:1500]
-    parsed = llm.structured_complete(
-        agent_name="email_personalization_agent",
-        system=(
+    # context for n8n's LLM call; backend never calls the LLM itself
+    return {
+        "queue_item_id": req.queue_item_id,
+        "system": (
             "Write a cold email to a home-services contractor who posted a "
             "receptionist-type job. Reference the ACTUAL posting (quote it briefly). "
             "Under 75 words, 4 sentences: Fact / Inference / Offer / Question. "
-            "No invented facts."
+            "No invented facts. Return ONLY JSON with keys: subject, first_sentence, "
+            "body, cta, followup_angle."
         ),
-        user=json.dumps({
+        "user": json.dumps({
             "business_name": item["business_name"],
             "job_title": item["title"],
             "posting_excerpt": excerpt,
             "offer": "ai_receptionist",
         }),
-        required_keys=["subject", "first_sentence", "body", "cta", "followup_angle"],
-        workspace_id=user["workspace_id"],
-        max_tokens=600,
-    )
-    body_text = " ".join(filter(None, [parsed.get("first_sentence"), parsed.get("body"),
-                                       parsed.get("cta")]))
-    if len(body_text.split()) >= 75:
-        raise HTTPException(422, f"draft too long ({len(body_text.split())} words)")
-
-    with db.get_pool().connection() as conn:
-        msg = conn.execute(
-            """INSERT INTO messages (workspace_id, lead_id, channel, direction, subject,
-                   body_text, status)
-               SELECT %s, NULL, 'email','outbound',%s,%s,'pending_approval'
-               RETURNING id""",
-            (user["workspace_id"], parsed.get("subject"), body_text),
-        ).fetchone()
-        # attach draft to a lead-less flow via queue reference
-        conn.execute(
-            "UPDATE hiring_intent_queue SET drafted_message_id=%s WHERE id=%s",
-            (str(msg["id"]), req.queue_item_id),
-        )
-    return {"message_id": str(msg["id"]), "draft": parsed}
+    }
 
 
 class ApproveIn(BaseModel):

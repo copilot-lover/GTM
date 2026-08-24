@@ -36,7 +36,8 @@ orbit/
 | API       | FastAPI (Python) | Same language as Scrapling + old prospecting pipeline being ported |
 | Realtime/services | Node/TypeScript services where needed (dialer signaling) | Split-stack decision |
 | DB        | PostgreSQL on VM | Authoritative source of truth |
-| Orchestration | n8n (self-hosted) | Schedules/events/retries only — never business state |
+| Orchestration | n8n (self-hosted) | ALL external work: LLM calls (OpenRouter), Scrapling scraping, SMTP transport, retries, DLQ |
+| Event bus | Postgres outbox + LISTEN/NOTIFY | State changes push `orbit_events`; n8n reacts, applies results back |
 | Email     | SMTP behind an `EmailProvider` abstraction | Constraints: no Instantly yet |
 
 ## Quick start (dev)

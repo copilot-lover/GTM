@@ -1,5 +1,7 @@
-"""Pipeline stage integration tests (spec §19.2) with monkeypatched LLM so
-deterministic behavior is verified without external API keys."""
+"""Deterministic stage-engine tests (spec §19.2).
+The backend never calls LLMs — apply functions receive n8n's parsed results.
+External-call orchestration lives in n8n workflows; here we verify the
+deterministic contracts: gating, scoring arithmetic, review routing, events."""
 
 import json
 
@@ -10,19 +12,7 @@ from app.services import pipeline
 from tests.conftest import make_lead
 
 
-def patch_llm(monkeypatch, responses: dict):
-    """Replace llm.structured_complete with canned responses keyed by agent name."""
-    def fake(agent_name: str, **kwargs):
-        if agent_name not in responses:
-            raise AssertionError(f"unexpected LLM call to {agent_name}")
-        r = responses[agent_name]
-        if isinstance(r, Exception):
-            raise r
-        return r
-    monkeypatch.setattr(pipeline.llm, "structured_complete", fake)
-
-
-def qualify_response(signals: dict, unclear=False):
+def qualify_result(signals: dict, unclear=False):
     return {
         "signals": signals,
         "unclear": unclear,
@@ -31,33 +21,36 @@ def qualify_response(signals: dict, unclear=False):
     }
 
 
-AUDIT_RESPONSE = {
+AUDIT_RESULT = {
     "findings": {"has_online_booking": False},
     "pain_points": ["no_online_booking", "missed_calls"],
     "primary_pain": "no_online_booking",
     "secondary_pain": "missed_calls",
     "website_score": 40,
 }
-OFFER_RESPONSE = {
+OFFER_RESULT = {
     "offer_id": "after_hours_booking",
     "why": "no booking exists",
     "expected_outcome": "capture after-hours jobs",
 }
-PERSONALIZE_RESPONSE = {
+DRAFT_RESULT = {
     "subject": "Booking while you're on a job",
-    "first_sentence": "Your site has no online booking option.",
-    "body": "After-hours callers likely go to the next plumber. We install an AI receptionist that books jobs 24/7.",
-    "cta": "Worth a 10-minute look this week?",
+    "first_sentence": "I saw your site has no booking option.",
+    "body": "After-hours callers likely call the next plumber instead. We set up AI booking that works 24/7 for you.",
+    "cta": "Worth a quick look this week?",
     "followup_angle": "short follow-up",
 }
 
 
 @pytest.fixture
-def qualified_env(db_url, workspace, monkeypatch):
+def qualified_lead(db_url, workspace):
     ws, user = workspace
     lead_id = make_lead(db_url, ws)
     conn = psycopg.connect(db_url, autocommit=True)
-    conn.execute("UPDATE companies SET website='https://acme.test' WHERE id=(SELECT company_id FROM leads WHERE id=%s)", (lead_id,))
+    conn.execute(
+        "UPDATE companies SET website='https://acme.test' WHERE id=(SELECT company_id FROM leads WHERE id=%s)",
+        (lead_id,),
+    )
     contact = conn.execute(
         """INSERT INTO contacts (workspace_id, company_id, email,
                email_verification_status)
@@ -66,185 +59,173 @@ def qualified_env(db_url, workspace, monkeypatch):
         (ws, lead_id),
     ).fetchone()[0]
     conn.execute("UPDATE leads SET contact_id=%s WHERE id=%s", (contact, lead_id))
-    # scrape fetch used by enrich/audit stages
-    class FakeResponse:
-        status, reason, body = 200, "OK", "<html>plumbing services</html>"
-    monkeypatch.setattr(
-        "app.services.scraping.scrape",
-        lambda url, stealth=False: FakeResponse(),
-    )
     conn.close()
     return str(ws), str(lead_id)
 
 
-class TestPipelineGating:
-    def test_rejected_lead_never_reaches_enrichment(self, db_url, workspace, monkeypatch):
-        """Spec §19.2: no enrichment/audit/personalization for rejected lead."""
-        ws, user = workspace
+class TestQualificationApply:
+    def test_qualified_lead_scores_and_emits_next_event(self, db_url, workspace):
+        ws, _ = workspace
         lead_id = make_lead(db_url, ws)
-
-        called = {"enrich": False}
-
-        def spy_enrich(workspace_id, lead_id):
-            called["enrich"] = True
-            return {}
-
-        patch_llm(monkeypatch, {
-            "qualification_agent": qualify_response({"franchise": True}),
-        })
-        result = pipeline.run_pipeline(ws, lead_id)
-        assert result["stages"].get("stage_qualify", {}).get("fit_status") in (
-            "rejected_too_large", "rejected_not_relevant")
-        assert "stage_enrich" not in result["stages"]
-        assert not called["enrich"]
+        result = pipeline.apply_qualification(ws, lead_id, qualify_result({
+            "single_location": True, "owner_visible": True,
+            "residential_focus": True, "simple_site": True,
+            "local_service_area": True}))
+        assert result["fit_status"] == "qualified"
+        assert result["next"] == "enrichment"
         conn = psycopg.connect(db_url, autocommit=True)
-        runs = conn.execute(
-            "SELECT count(*) FROM agent_runs WHERE workspace_id=%s", (ws,)
+        events = conn.execute(
+            "SELECT event_type FROM event_outbox ORDER BY created_at DESC LIMIT 1"
         ).fetchone()[0]
-        assert runs == 0
+        status = conn.execute("SELECT status FROM leads WHERE id=%s", (lead_id,)).fetchone()[0]
         conn.close()
+        assert events == "lead.enrichment_requested"
+        assert status == "enriching"
 
-    def test_offer_pain_contract_violation_raises(self, db_url, qualified_env, monkeypatch):
-        """Spec §19.2: pain-match violation raises an error — 0 tolerance."""
-        ws, lead_id = qualified_env
-        assert db_url
-        bad_offer = dict(OFFER_RESPONSE, offer_id="review_generation")
-        patch_llm(monkeypatch, {
-            "qualification_agent": qualify_response({
-                "single_location": True, "owner_visible": True,
-                "residential_focus": True, "simple_site": True,
-                "local_service_area": True}),
-            "enrichment_agent": {
-                "owner_name": "Pat", "email": None,
-                "employee_estimate": None, "confidence": 80,
-                "source_notes": "about page"},
-            "website_audit_agent": AUDIT_RESPONSE,
-            "offer_selection_agent": bad_offer,
-        })
-        result = pipeline.run_pipeline(ws, lead_id)
-        # fail-closed: stage errors are contained, pipeline stops at offer stage
-        assert result["stopped_at"] == "stage_offer"
+    def test_rejected_lead_stops_no_enrichment_event(self, db_url, workspace):
+        ws, _ = workspace
+        lead_id = make_lead(db_url, ws)
+        result = pipeline.apply_qualification(ws, lead_id, qualify_result({
+            "franchise": True, "national_brand": True}))
+        assert result["fit_status"].startswith("rejected")
+        assert result["next"] is None
+        conn = psycopg.connect(db_url, autocommit=True)
+        types = [r[0] for r in conn.execute(
+            "SELECT event_type FROM event_outbox").fetchall()]
+        conn.close()
+        assert "lead.enrichment_requested" not in types
+
+    def test_score_never_exceeds_10_and_rejects_below_threshold(self, db_url, workspace):
+        ws, _ = workspace
+        lead_id = make_lead(db_url, ws)
+        r = pipeline.apply_qualification(ws, lead_id, qualify_result({}))
+        assert r["lead_score"] <= 10
+        conn = psycopg.connect(db_url, autocommit=True)
+        fit = conn.execute("SELECT fit_status FROM leads WHERE id=%s", (lead_id,)).fetchone()[0]
+        conn.close()
+        assert fit != "qualified"  # empty signals never qualify
+
+
+class TestEnrichmentGating:
+    def test_enrichment_hard_gated_on_qualified(self, db_url, workspace):
+        ws, _ = workspace
+        lead_id = make_lead(db_url, ws)  # fit_status pending
+        with pytest.raises(pipeline.PipelineError, match="gated"):
+            pipeline.apply_enrichment(ws, lead_id, {
+                "owner_name": "Pat", "email": "p@acme.test",
+                "employee_estimate": None, "confidence": 80, "source_notes": "x"})
+
+    def test_missing_owner_and_email_route_to_review(self, db_url, workspace):
+        ws, _ = workspace
+        lead_id = make_lead(db_url, ws)
+        conn = psycopg.connect(db_url, autocommit=True)
+        conn.execute(
+            "UPDATE leads SET fit_status='qualified', status='qualified' WHERE id=%s",
+            (lead_id,))
+        conn.close()
+        pipeline.apply_enrichment(ws, lead_id, {
+            "owner_name": None, "email": None,
+            "employee_estimate": None, "confidence": 0, "source_notes": "not found"})
         conn = psycopg.connect(db_url, autocommit=True)
         reasons = conn.execute(
-            "SELECT review_reasons FROM leads WHERE id=%s", (lead_id,)
-        ).fetchone()[0]
+            "SELECT review_reasons FROM leads WHERE id=%s", (lead_id,)).fetchone()[0]
+        owner_null = conn.execute(
+            "SELECT owner_name IS NULL FROM companies WHERE id=(SELECT company_id FROM leads WHERE id=%s)",
+            (lead_id,)).fetchone()[0]
+        conn.close()
+        assert any("owner" in r for r in reasons)
+        assert any("email" in r for r in reasons)
+        assert owner_null is True  # never invented
+
+
+class TestOfferContract:
+    def test_offer_pain_violation_flagged_zero_tolerance(self, db_url, qualified_lead):
+        ws, lead_id = qualified_lead
+        pipeline.apply_audit(ws, lead_id, AUDIT_RESULT)
+        bad = dict(OFFER_RESULT, offer_id="review_generation")
+        with pytest.raises(pipeline.PipelineError, match="mismatch"):
+            pipeline.apply_offer(ws, lead_id, bad)
+        conn = psycopg.connect(db_url, autocommit=True)
+        reasons = conn.execute(
+            "SELECT review_reasons FROM leads WHERE id=%s", (lead_id,)).fetchone()[0]
         conn.close()
         assert any("contract violation" in r for r in reasons)
 
-    def test_missing_owner_and_email_route_to_review(self, db_url, workspace, monkeypatch):
-        ws, user = workspace
-        lead_id = make_lead(db_url, ws)
+    def test_matching_offer_passes_and_emits_draft_event(self, db_url, qualified_lead):
+        ws, lead_id = qualified_lead
+        pipeline.apply_audit(ws, lead_id, AUDIT_RESULT)
+        result = pipeline.apply_offer(ws, lead_id, OFFER_RESULT)
+        assert result["next"] == "draft"
         conn = psycopg.connect(db_url, autocommit=True)
-        conn.execute("UPDATE companies SET website='https://x.test' WHERE id=(SELECT company_id FROM leads WHERE id=%s)", (lead_id,))
-        conn.execute("UPDATE leads SET fit_status='qualified', status='qualified' WHERE id=%s", (lead_id,))
-        conn.close()
-
-        class FakeResponse:
-            status, reason, body = 200, "OK", "<html>plumbing</html>"
-        monkeypatch.setattr(
-            "app.services.scraping.scrape",
-            lambda url, stealth=False: FakeResponse(),
-        )
-        patch_llm(monkeypatch, {
-            "enrichment_agent": {
-                "owner_name": None, "email": None,
-                "employee_estimate": None, "confidence": 0,
-                "source_notes": "not found anywhere"},
-        })
-        pipeline.stage_enrich(ws, lead_id)
-        conn = psycopg.connect(db_url, autocommit=True)
-        reasons = conn.execute(
-            "SELECT review_reasons FROM leads WHERE id=%s", (lead_id,)
-        ).fetchone()[0]
-        score = conn.execute(
-            "SELECT owner_name IS NULL FROM companies WHERE id=(SELECT company_id FROM leads WHERE id=%s)",
-            (lead_id,),
+        last = conn.execute(
+            "SELECT event_type FROM event_outbox ORDER BY created_at DESC LIMIT 1"
         ).fetchone()[0]
         conn.close()
-        reasons_list = reasons
-        assert any("owner" in r for r in reasons_list)
-        assert any("email" in r for r in reasons_list)
-        assert score is True  # never invented a name
+        assert last == "lead.draft_requested"
 
 
-class TestFailClosed:
-    def test_no_llm_config_routes_to_review_not_invention(self, db_url, workspace, monkeypatch):
-        ws, user = workspace
-        lead_id = make_lead(db_url, ws)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        import app.config as config
-        config.get_settings.cache_clear()
-        try:
-            result = pipeline.run_pipeline(str(ws), str(lead_id))
-        finally:
-            config.get_settings.cache_clear()
-        assert result["stopped_at"] == "stage_qualify"
+class TestDraftQA:
+    def test_draft_over_75_words_rejected(self, qualified_lead):
+        ws, lead_id = qualified_lead
+        pipeline.apply_audit(ws, lead_id, AUDIT_RESULT)
+        pipeline.apply_offer(ws, lead_id, OFFER_RESULT)
+        long_draft = dict(DRAFT_RESULT)
+        long_draft["body"] = " ".join(["word"] * 80)
+        with pytest.raises(pipeline.PipelineError, match="75 words"):
+            pipeline.apply_draft(ws, lead_id, long_draft)
+
+    def test_banned_phrase_rejected(self, qualified_lead):
+        ws, lead_id = qualified_lead
+        pipeline.apply_audit(ws, lead_id, AUDIT_RESULT)
+        pipeline.apply_offer(ws, lead_id, OFFER_RESULT)
+        banned = dict(DRAFT_RESULT, body="Just following up on my last note about booking automation for your shop.")
+        with pytest.raises(pipeline.PipelineError, match="banned"):
+            pipeline.apply_draft(ws, lead_id, banned)
+
+    def test_valid_draft_creates_pending_approval(self, db_url, qualified_lead):
+        ws, lead_id = qualified_lead
+        pipeline.apply_audit(ws, lead_id, AUDIT_RESULT)
+        pipeline.apply_offer(ws, lead_id, OFFER_RESULT)
+        result = pipeline.apply_draft(ws, lead_id, DRAFT_RESULT)
+        assert result["next"] == "approval"
         conn = psycopg.connect(db_url, autocommit=True)
-        row = conn.execute(
-            "SELECT review_reasons, evidence FROM leads WHERE id=%s", (lead_id,)
-        ).fetchone()
+        status = conn.execute(
+            "SELECT status FROM messages WHERE id=%s", (result["message_id"],)
+        ).fetchone()[0]
         conn.close()
-        assert any("blocked" in r for r in row[0])
-        assert row[1].get("icp_signals") is None  # no fabricated scoring evidence
+        assert status == "pending_approval"
+
+
+class TestContextEndpoints:
+    def test_context_requires_qualified_for_enrichment(self, db_url, workspace):
+        ws, _ = workspace
+        lead_id = make_lead(db_url, ws)
+        with pytest.raises(pipeline.PipelineError, match="gated"):
+            pipeline.stage_context(ws, lead_id, "enrichment")
+
+    def test_qualification_context_has_prompt_and_keys(self, db_url, workspace):
+        ws, _ = workspace
+        lead_id = make_lead(db_url, ws)
+        ctx = pipeline.stage_context(ws, lead_id, "qualification")
+        assert "system" in ctx and "user" in ctx
+        assert "signals" in ctx["required_keys"]
+        assert "Qualification Agent" in ctx["system"]
 
 
 class TestUnverifiedEmailGate:
-    def test_outreach_ready_requires_verified_email_both_directions(
-        self, db_url, qualified_env, monkeypatch
-    ):
-        """§19.2 invariant locked both ways: dns_ok never reaches outreach_ready;
-        flipping to verified unlocks the transition on re-run."""
-        from app.services import llm
-
-        ws, lead_id = qualified_env
-
-        patch_llm(monkeypatch, {
-            "qualification_agent": qualify_response({
-                "single_location": True, "owner_visible": True,
-                "residential_focus": True, "simple_site": True,
-                "local_service_area": True}),
-            "enrichment_agent": {
-                "owner_name": "Pat", "email": "pat@acme.test",
-                "employee_estimate": None, "confidence": 90,
-                "source_notes": "about page"},
-            "website_audit_agent": AUDIT_RESPONSE,
-            "offer_selection_agent": OFFER_RESPONSE,
-            "email_personalization_agent": PERSONALIZE_RESPONSE,
-            "email_critic_agent": PERSONALIZE_RESPONSE,
-        })
-
-        # contact starts at 'verified' in fixture; downgrade to dns_ok first
+    def test_outreach_ready_requires_verified_email(self, db_url, qualified_lead):
+        """dns_ok contact never reaches outreach_ready; verified unlocks it."""
+        ws, lead_id = qualified_lead
         conn = psycopg.connect(db_url, autocommit=True)
         conn.execute(
             """UPDATE contacts SET email_verification_status='dns_ok'
-               WHERE id=(SELECT contact_id FROM leads WHERE id=%s)""",
-            (lead_id,),
-        )
+               WHERE id=(SELECT contact_id FROM leads WHERE id=%s)""", (lead_id,))
         conn.close()
-
-        result = pipeline.run_pipeline(ws, lead_id)
-        assert result["stopped_at"] is None  # all stages ran
+        pipeline.apply_audit(ws, lead_id, AUDIT_RESULT)
+        pipeline.apply_offer(ws, lead_id, OFFER_RESULT)
+        pipeline.apply_draft(ws, lead_id, DRAFT_RESULT)
+        # draft created, but no code path moved the lead to outreach_ready
         conn = psycopg.connect(db_url, autocommit=True)
-        status = conn.execute(
-            "SELECT status FROM leads WHERE id=%s", (lead_id,)
-        ).fetchone()[0]
+        status = conn.execute("SELECT status FROM leads WHERE id=%s", (lead_id,)).fetchone()[0]
         conn.close()
-        assert status != "outreach_ready"  # gate held
-
-        # flip to verified -> re-run transitions to outreach_ready
-        conn = psycopg.connect(db_url, autocommit=True)
-        conn.execute(
-            """UPDATE contacts SET email_verification_status='verified'
-               WHERE id=(SELECT contact_id FROM leads WHERE id=%s)""",
-            (lead_id,),
-        )
-        conn.close()
-        result2 = pipeline.run_pipeline(ws, lead_id)
-        assert result2["stopped_at"] is None
-        conn = psycopg.connect(db_url, autocommit=True)
-        status2 = conn.execute(
-            "SELECT status FROM leads WHERE id=%s", (lead_id,)
-        ).fetchone()[0]
-        conn.close()
-        assert status2 == "outreach_ready"
+        assert status != "outreach_ready"

@@ -1,0 +1,87 @@
+{
+  "name": "Orbit - Reply Classification",
+  "nodes": [
+    {
+      "parameters": { "polling": true, "options": {} },
+      "id": "pg_trigger",
+      "name": "Reply events",
+      "type": "n8n-nodes-base.postgresTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "=Bearer {{$env.OPENROUTER_API_KEY}}" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.ORBIT_CHEAP_MODEL || 'openai/gpt-4o-mini', messages: [{ role: 'system', content: 'Classify the inbound prospect reply into exactly one class: BOOKING_REQUEST, HUMAN_REQUIRED, INTERESTED, NOT_INTERESTED, OBJECTION, PRICE, QUESTION. Reply with JSON only: {intent_class, confidence, suggested_response}' }, { role: 'user', content: String($json.text || JSON.parse($json.payload||'{}').text || '') }] }) }}"
+      },
+      "id": "llm",
+      "name": "LLM: Classify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $json.choices?.[0]?.message?.content || '';\nconst m = r.match(/\\{[\\s\\S]*\\}/);\nif (!m) throw new Error('no JSON');\nreturn { llm: JSON.parse(m[0]), usage: $json.usage || {} };"
+      },
+      "id": "parse",
+      "name": "Parse JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8100/api/outreach/apply/classification",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ lead_id: JSON.parse($('Reply events').item.json.payload).lead_id, intent_class: $json.llm.intent_class, confidence: $json.llm.confidence || 0, suggested_response: $json.llm.suggested_response || null }) }}"
+      },
+      "id": "apply",
+      "name": "Apply Classification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "retryOnFail": true,
+      "maxTries": 3
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8100/api/pipeline/agents/record-run",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ agent_name: 'reply_classification_agent', tokens_in: $json.usage.prompt_tokens || 0, tokens_out: $json.usage.completion_tokens || 0, model: $env.ORBIT_CHEAP_MODEL || 'openai/gpt-4o-mini' }) }}"
+      },
+      "id": "ledger",
+      "name": "Record cost",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 0],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Reply events": { "main": [[{ "node": "LLM: Classify", "type": "main", "index": 0 }]] },
+    "LLM: Classify": { "main": [[{ "node": "Parse JSON", "type": "main", "index": 0 }]] },
+    "Parse JSON": { "main": [[{ "node": "Apply Classification", "type": "main", "index": 0 }]] },
+    "Apply Classification": { "main": [[{ "node": "Record cost", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "n8n owns LLM classification (spec 10.3). The API persists replies durably + fires the kill switch BEFORE this workflow runs; if n8n is down the reply is never lost — it just stays HUMAN_REQUIRED."
+  }
+}

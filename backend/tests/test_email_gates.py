@@ -48,7 +48,7 @@ class TestApprovalGate:
         ).fetchone()[0])
         conn.close()
         with pytest.raises(email_service.SendBlocked) as exc:
-            email_service.send_approved(ws, msg)
+            email_service.claim_for_send(ws, msg)
         assert "not approved" in str(exc.value)
 
     def test_rejected_message_cannot_send(self, approved_draft):
@@ -97,7 +97,7 @@ class TestSendGates:
         ).fetchone()[0])
         conn.close()
         with pytest.raises(email_service.SendBlocked) as exc:
-            email_service.send_approved(ws, msg)
+            email_service.claim_for_send(ws, msg)
         assert "provider-verified" in str(exc.value)
 
     def test_suppressed_email_blocked_even_if_approved_verified(
@@ -124,7 +124,7 @@ class TestSendGates:
                         value="blocked@acme.test", reason="prior bounce")
         conn.close()
         with pytest.raises(email_service.SendBlocked) as exc:
-            email_service.send_approved(ws, msg)
+            email_service.claim_for_send(ws, msg)
         assert "suppressed" in str(exc.value)
 
     def test_can_spam_signature_present(self, workspace):
@@ -190,17 +190,15 @@ class TestKillSwitch:
 
 
 class TestIdempotentSend:
-    def test_duplicate_send_same_key_single_delivery(self, db_url, workspace, monkeypatch):
-        """Spec §19.3: same idempotency key => exactly one send."""
-        ws, user = workspace
+    def _make_approved_verified(self, db_url, ws, email):
         lead_id = make_lead(db_url, ws)
         conn = psycopg.connect(db_url, autocommit=True)
         contact = conn.execute(
             """INSERT INTO contacts (workspace_id, company_id, email,
                    email_verification_status)
-               SELECT %s, company_id, 'idem@acme.test', 'verified'
+               SELECT %s, company_id, %s, 'verified'
                FROM leads WHERE id=%s RETURNING id""",
-            (ws, lead_id),
+            (ws, email, lead_id),
         ).fetchone()[0]
         conn.execute("UPDATE leads SET contact_id=%s WHERE id=%s", (contact, lead_id))
         msg = str(conn.execute(
@@ -210,70 +208,34 @@ class TestIdempotentSend:
             (ws, lead_id),
         ).fetchone()[0])
         conn.close()
+        return msg
 
-        sends = []
-
-        class FakeProvider:
-            def send(self, email):
-                sends.append(email.to_email)
-                return "fake-provider-id-1"
-
-        from app.services import email_service as es
-
-        monkeypatch.setattr(es, "get_provider", lambda: FakeProvider())
-        monkeypatch.setenv("SMTP_HOST", "test.smtp.local")
+    def test_duplicate_claim_same_key_single_payload(self, db_url, workspace, monkeypatch):
+        """Spec §19.3: same idempotency key => one transport payload, replay cached."""
+        ws, user = workspace
         monkeypatch.setenv("ORBIT_PHYSICAL_ADDRESS", "1 Test St, Test, NC 27000")
         import app.config as _cfg
-
         _cfg.get_settings.cache_clear()
-        yield_cleanup = True
-
-        r1 = es.send_approved(ws, msg, idempotency_key="test-key-1")
-        r2 = es.send_approved(ws, msg, idempotency_key="test-key-1")
-        assert r1["status"] == "sent"
+        msg = self._make_approved_verified(db_url, ws, "idem@acme.test")
+        r1 = email_service.claim_for_send(ws, msg, idempotency_key="test-key-1")
+        assert r1["to_email"] == "idem@acme.test"
+        email_service.apply_send_result(ws, msg, ok=True, provider_message_id="fake-1")
+        r2 = email_service.claim_for_send(ws, msg, idempotency_key="test-key-1")
         assert r2.get("idempotent_replay") is True
-        assert sends == ["idem@acme.test"]  # exactly one delivery
 
     def test_atomic_claim_blocks_double_send(self, db_url, workspace, monkeypatch):
         ws, user = workspace
-        lead_id = make_lead(db_url, ws)
-        conn = psycopg.connect(db_url, autocommit=True)
-        contact = conn.execute(
-            """INSERT INTO contacts (workspace_id, company_id, email,
-                   email_verification_status)
-               SELECT %s, company_id, 'claim@acme.test', 'verified'
-               FROM leads WHERE id=%s RETURNING id""",
-            (ws, lead_id),
-        ).fetchone()[0]
-        conn.execute("UPDATE leads SET contact_id=%s WHERE id=%s", (contact, lead_id))
-        msg = str(conn.execute(
-            """INSERT INTO messages (workspace_id, lead_id, channel, direction,
-                   subject, body_text, status) VALUES (%s,%s,'email','outbound',
-                   's','b','approved') RETURNING id""",
-            (ws, lead_id),
-        ).fetchone()[0])
-        conn.close()
-
-        class FakeProvider:
-            def send(self, email):
-                return "fake-id"
-
-        from app.services import email_service as es
-
-        monkeypatch.setattr(es, "get_provider", lambda: FakeProvider())
-        monkeypatch.setenv("SMTP_HOST", "test.smtp.local")
         monkeypatch.setenv("ORBIT_PHYSICAL_ADDRESS", "1 Test St, Test, NC 27000")
         import app.config as _cfg
-
         _cfg.get_settings.cache_clear()
-        yield_cleanup = True
-        assert es.send_approved(ws, msg)["status"] == "sent"
-        # second attempt without key: message no longer claimable
-        with pytest.raises(es.SendBlocked) as exc:
-            es.send_approved(ws, msg)
+        msg = self._make_approved_verified(db_url, ws, "claim@acme.test")
+        payload = email_service.claim_for_send(ws, msg)
+        assert payload["to_email"] == "claim@acme.test"
+        with pytest.raises(email_service.SendBlocked) as exc:
+            email_service.claim_for_send(ws, msg)
         assert "not claimable" in str(exc.value)
 
-    def test_dead_letter_after_three_failures(self, db_url, workspace, monkeypatch):
+    def test_dead_letter_after_three_failures(self, db_url, workspace):
         ws, user = workspace
         lead_id = make_lead(db_url, ws)
         conn = psycopg.connect(db_url, autocommit=True)
@@ -284,17 +246,14 @@ class TestIdempotentSend:
             (ws, lead_id),
         ).fetchone()[0])
         conn.close()
-
-        from app.services import email_service as es
-
         for _ in range(2):
-            es.record_failure(msg, "smtp down")
+            email_service.record_failure(msg, "smtp down")
         status_2 = psycopg.connect(db_url, autocommit=True).execute(
             "SELECT status FROM messages WHERE id=%s", (msg,)
         ).fetchone()[0]
-        es.record_failure(msg, "smtp down")
+        email_service.record_failure(msg, "smtp down")
         status_3 = psycopg.connect(db_url, autocommit=True).execute(
             "SELECT status FROM messages WHERE id=%s", (msg,)
         ).fetchone()[0]
-        assert status_2 == "approved"   # still retryable
-        assert status_3 == "failed"     # dead-letter reached
+        assert status_2 == "approved"
+        assert status_3 == "failed"

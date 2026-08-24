@@ -88,3 +88,21 @@ user is admin in every workspace. Regenerate: `backend/uv run python scripts/cre
 
 Re-import workflows after editing exports:
 `N8N_USER_FOLDER=/home/ubuntu/GTM/orbit/n8n/data n8n import:workflow --input=<file>`
+
+## Architecture boundaries after the 10.3 refactor
+
+| Layer | Owns | Never does |
+|---|---|---|
+| Postgres | state machine, scoring math, gates, audit, **event outbox (pg_notify `orbit_events`)** | external calls |
+| FastAPI | deterministic validation, apply endpoints, approval/suppression gates, idempotent claims | LLM, scraping, SMTP |
+| n8n | stage contexts → Scrapling → LLM (OpenRouter) → apply; email transport; reply classification; retries w/ backoff; DLQ via record_failure | business state |
+
+Event chain: `lead.qualification_requested → (n8n: LLM) → apply/qualification →
+lead.enrichment_requested → (n8n: Scrapling + LLM) → apply/enrichment →
+lead.audit_requested → … → apply/draft → approval → message.approved →
+(n8n SMTP) → apply/send-result. Replies: durable intake → reply.received →
+(n8n LLM) → apply/classification.
+
+n8n needs env: `ORBIT_SERVICE_TOKEN` (injected via systemd drop-in),
+`OPENROUTER_API_KEY` (set in the n8n unit or UI), and SMTP credentials
+configured once in the n8n UI for the Email Transport workflow.

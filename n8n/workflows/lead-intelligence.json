@@ -1,0 +1,186 @@
+{
+  "name": "Orbit - Lead Intelligence Chain",
+  "nodes": [
+    {
+      "parameters": {
+        "polling": false,
+        "options": {},
+        "operation": "executeQuery",
+        "query": "SELECT id, event_type, payload, workspace_id FROM event_outbox WHERE processed_at IS NULL ORDER BY created_at LIMIT 5",
+        "triggerMode": "polling"
+      },
+      "id": "pg_trigger",
+      "name": "Event Outbox (orbit_events)",
+      "type": "n8n-nodes-base.postgresTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "polling": true
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{$json.event_type}}",
+        "rules": {
+          "rules": [
+            { "value2": "lead.qualification_requested", "output": 0 },
+            { "value2": "lead.enrichment_requested", "output": 1 },
+            { "value2": "lead.audit_requested", "output": 2 },
+            { "value2": "lead.offer_requested", "output": 3 },
+            { "value2": "lead.draft_requested", "output": 4 },
+            { "value2": "hiring.refine_requested", "output": 5 }
+          ]
+        }
+      },
+      "id": "route",
+      "name": "Route by event",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Shared helpers: call Orbit API with the service token\nconst token = $env.ORBIT_SERVICE_TOKEN;\nconst base = 'http://127.0.0.1:8100/api';\nreturn { token, base };"
+      },
+      "id": "cfg",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://127.0.0.1:8100/api/pipeline/{{ $json.lead_id || JSON.parse($json.payload).lead_id }}/apply/qualification",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ result: $json.llm }) }}"
+      },
+      "id": "apply_qual",
+      "name": "Apply Qualification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, -200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=http://127.0.0.1:8100/api/pipeline/{{ JSON.parse($json.payload).lead_id }}/context/enrichment",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] }
+      },
+      "id": "ctx_enrich",
+      "name": "Get Enrichment Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "retryOnFail": true,
+      "maxTries": 3
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://127.0.0.1:8100/api/scrape",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ url: JSON.parse($json.user).scrape_url, stealth: true }) }}"
+      },
+      "id": "scrape_enrich",
+      "name": "Scrape site (Scrapling)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 8000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "=Bearer {{$env.OPENROUTER_API_KEY}}" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.ORBIT_CHEAP_MODEL || 'openai/gpt-4o-mini', messages: [{ role: 'system', content: $json.system }, { role: 'user', content: ($json.user || '').replace('[n8n: insert scraped page_content here]', ($('Scrape site (Scrapling)').item.json.body || '').slice(0, 12000)) }] }) }}"
+      },
+      "id": "llm_enrich",
+      "name": "LLM: Enrichment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 0],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $json.choices?.[0]?.message?.content || '';\nconst m = r.match(/\\{[\\s\\S]*\\}/);\nif (!m) throw new Error('no JSON in LLM response');\nreturn { llm: JSON.parse(m[0]), usage: $json.usage || {} };"
+      },
+      "id": "parse_enrich",
+      "name": "Parse JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://127.0.0.1:8100/api/pipeline/{{ $('Get Enrichment Context').item.json.user ? JSON.parse($('Event Outbox (orbit_events)').item.json.payload).lead_id : '' }}/apply/enrichment",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ result: $json.llm }) }}"
+      },
+      "id": "apply_enrich",
+      "name": "Apply Enrichment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 0],
+      "retryOnFail": true,
+      "maxTries": 3
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://127.0.0.1:8100/api/pipeline/agents/record-run",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ agent_name: 'enrichment_agent', tokens_in: $('Parse JSON').item.json.usage.prompt_tokens || 0, tokens_out: $('Parse JSON').item.json.usage.completion_tokens || 0, model: $env.ORBIT_CHEAP_MODEL || 'openai/gpt-4o-mini' }) }}"
+      },
+      "id": "ledger_enrich",
+      "name": "Record cost",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1760, 0],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Event Outbox (orbit_events)": { "main": [[{ "node": "Route by event", "type": "main", "index": 0 }]] },
+    "Route by event": { "main": [
+      [{ "node": "Apply Qualification", "type": "main", "index": 0 }],
+      [{ "node": "Get Enrichment Context", "type": "main", "index": 0 }],
+      null, null, null, null
+    ] },
+    "Get Enrichment Context": { "main": [[{ "node": "Scrape site (Scrapling)", "type": "main", "index": 0 }]] },
+    "Scrape site (Scrapling)": { "main": [[{ "node": "LLM: Enrichment", "type": "main", "index": 0 }]] },
+    "LLM: Enrichment": { "main": [[{ "node": "Parse JSON", "type": "main", "index": 0 }]] },
+    "Parse JSON": { "main": [[{ "node": "Apply Enrichment", "type": "main", "index": 0 }]] },
+    "Apply Enrichment": { "main": [[{ "node": "Record cost", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "current" },
+  "meta": {
+    "description": "n8n owns ALL external work (spec 10.3): Scrapling scraping via the adapter endpoint, LLM calls via OpenRouter, retries with backoff. Postgres emits events; results are applied back through deterministic validation endpoints. Enrichment chain shown fully; audit/offer/draft stages follow the same context->LLM->apply pattern (clone the three middle nodes per stage)."
+  }
+}
