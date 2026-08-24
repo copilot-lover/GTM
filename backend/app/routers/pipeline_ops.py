@@ -104,6 +104,34 @@ def record_run(req: RecordRunIn, user: dict = Depends(require_workspace)):
     return {"recorded": True, "cost_usd": round(cost, 6)}
 
 
+@router.get("/events/{event_id}")
+def get_event(event_id: str, user: dict = Depends(require_workspace)):
+    """Fetch one outbox row (n8n LISTEN payload carries 'type|id')."""
+    from psycopg.rows import dict_row
+
+    import app.db as db
+
+    with db.get_pool().connection() as conn:
+        conn.row_factory = dict_row
+        row = conn.execute(
+            """SELECT id, event_type, payload, workspace_id, created_at
+               FROM event_outbox WHERE id=%s""",
+            (event_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(404, "event not found")
+    return row
+
+
+@router.post("/events/{event_id}/ack")
+def ack_one(event_id: str, user: dict = Depends(require_workspace)):
+    import app.db as db
+
+    with db.get_pool().connection() as conn:
+        events.mark_processed(conn, event_id)
+    return {"acked": event_id}
+
+
 @router.get("/events/pending")
 def pending_events(user: dict = Depends(require_workspace)):
     """Polling fallback for the LISTEN channel (n8n Postgres Trigger)."""

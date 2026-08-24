@@ -1,0 +1,142 @@
+{
+ "name": "Orbit - Dialer Dispatch",
+ "nodes": [
+  {
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "triggerAtHour": 8
+      }
+     ]
+    }
+   },
+   "id": "cron",
+   "name": "Weekdays 8 AM",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "method": "GET",
+    "url": "http://127.0.0.1:8100/api/dashboard",
+    "sendHeaders": true,
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "Authorization",
+       "value": "={{$env.ORBIT_SERVICE_TOKEN}}"
+      }
+     ]
+    }
+   },
+   "id": "hot",
+   "name": "Get hot leads",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    220,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "method": "POST",
+    "url": "http://127.0.0.1:8100/api/dialer/sessions",
+    "sendHeaders": true,
+    "sendBody": true,
+    "specifyBody": "json",
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "Authorization",
+       "value": "={{$env.ORBIT_SERVICE_TOKEN}}"
+      }
+     ]
+    },
+    "jsonBody": "={{ JSON.stringify({ name: 'Morning session ' + $now.format('yyyy-MM-dd'), filters: { min_priority: 65 }, lead_ids: $json.hot_leads.map(h => h.id) } }) }}",
+    "onError": "continueRegularOutput"
+   },
+   "id": "session",
+   "name": "Build P1/P2 session",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    440,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "method": "POST",
+    "url": "http://127.0.0.1:8100/api/dialer/kpis",
+    "sendHeaders": true,
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "Authorization",
+       "value": "={{$env.ORBIT_SERVICE_TOKEN}}"
+      }
+     ]
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "{}",
+    "onError": "continueRegularOutput"
+   },
+   "id": "notify",
+   "name": "Operator handoff (queue ready)",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    660,
+    0
+   ]
+  }
+ ],
+ "connections": {
+  "Weekdays 8 AM": {
+   "main": [
+    [
+     {
+      "node": "Get hot leads",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Get hot leads": {
+   "main": [
+    [
+     {
+      "node": "Build P1/P2 session",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Build P1/P2 session": {
+   "main": [
+    [
+     {
+      "node": "Operator handoff (queue ready)",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "meta": {
+  "description": "Dialer dispatch: builds the morning call session from hot leads and hands the queue to the operator. n8n NEVER dials autonomously (spec C-4/C-11: human does the talking; Twilio calls are operator click-to-call via WebRTC)."
+ }
+}

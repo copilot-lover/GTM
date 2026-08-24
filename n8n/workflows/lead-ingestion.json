@@ -1,0 +1,182 @@
+{
+ "name": "Orbit - Lead Ingestion",
+ "nodes": [
+  {
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "triggerAtHour": 7
+      }
+     ]
+    }
+   },
+   "id": "cron",
+   "name": "Daily 7 AM",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Target geo/vertical for today's batch.\n// Replace with Scrapler/Apify/source-adapter output; shape:\n// [{ business_name, website, phone, city, state, vertical }]\nreturn [{ json: { candidates: [] } }];"
+   },
+   "id": "source",
+   "name": "Source candidates (adapter)",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    220,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "fieldToSplitOut": "candidates",
+    "options": {}
+   },
+   "id": "split",
+   "name": "Split candidates",
+   "type": "n8n-nodes-base.splitOut",
+   "typeVersion": 1,
+   "position": [
+    440,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "method": "POST",
+    "url": "http://127.0.0.1:8100/api/leads",
+    "sendHeaders": true,
+    "sendBody": true,
+    "specifyBody": "json",
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "Authorization",
+       "value": "={{$env.ORBIT_SERVICE_TOKEN}}"
+      }
+     ]
+    },
+    "jsonBody": "={{ JSON.stringify({ company: { business_name: $json.business_name, website: $json.website, phone: $json.phone, city: $json.city, state: $json.state, vertical: $json.vertical, source: 'n8n_ingestion' } } }) }}",
+    "onError": "continueRegularOutput"
+   },
+   "id": "create",
+   "name": "Create lead (dedup in API)",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    660,
+    0
+   ],
+   "retryOnFail": true,
+   "maxTries": 3
+  },
+  {
+   "parameters": {
+    "jsCode": "return { lead_ids: $('Create lead (dedup in API)').all().map(i => i.json.id).filter(Boolean) };"
+   },
+   "id": "collect",
+   "name": "Collect ids",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    880,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "method": "POST",
+    "url": "http://127.0.0.1:8100/api/pipeline/run",
+    "sendHeaders": true,
+    "sendBody": true,
+    "specifyBody": "json",
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "Authorization",
+       "value": "={{$env.ORBIT_SERVICE_TOKEN}}"
+      }
+     ]
+    },
+    "jsonBody": "={{ JSON.stringify({ lead_ids: $json.lead_ids }) }}"
+   },
+   "id": "queue",
+   "name": "Emit qualification events",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1100,
+    0
+   ]
+  }
+ ],
+ "connections": {
+  "Daily 7 AM": {
+   "main": [
+    [
+     {
+      "node": "Source candidates (adapter)",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Source candidates (adapter)": {
+   "main": [
+    [
+     {
+      "node": "Split candidates",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Split candidates": {
+   "main": [
+    [
+     {
+      "node": "Create lead (dedup in API)",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Create lead (dedup in API)": {
+   "main": [
+    [
+     {
+      "node": "Collect ids",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Collect ids": {
+   "main": [
+    [
+     {
+      "node": "Emit qualification events",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "meta": {
+  "description": "Lead ingestion: source adapter output -> API dedupe -> qualification events -> Lead Intelligence Chain takes over."
+ }
+}
