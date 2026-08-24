@@ -10,14 +10,14 @@ export default function HiringIntent() {
   }, []);
 
   return (
-    <div className="gtm-page">
-      <div className="gtm-toolbar">
+    <div className="w-full max-w-7xl mx-auto space-y-4">
+      <div className="flex flex-wrap gap-3 items-center">
         <h1>Hiring Intent</h1>
-        <span className="gtm-chip gtm-chip-amber">email only</span>
+        <span className="badge badge-pending_approval">email only</span>
         <span className="gtm-count">{items.length} in queue</span>
       </div>
 
-      {error && <div className="gtm-alert gtm-alert-red">{error}</div>}
+      {error && <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">{error}</div>}
 
       <table className="gtm-table">
         <thead>

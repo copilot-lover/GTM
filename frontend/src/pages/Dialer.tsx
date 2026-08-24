@@ -133,11 +133,11 @@ export default function Dialer() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="gtm-toolbar">
+    <div className="w-full max-w-7xl mx-auto space-y-4">
+      <div className="flex flex-wrap gap-3 items-center">
         <h1>Session Dialer</h1>
         {kpis && (
-          <span className="gtm-count">
+          <span className="mono text-xs text-slate-400 ml-auto">
             today: {kpis.calls_today} calls ·{" "}
             {Math.round((kpis.connection_rate_today ?? 0) * 100)}% connect
           </span>
@@ -148,7 +148,7 @@ export default function Dialer() {
         <select
           value={sessionId}
           onChange={(e) => openSession(e.target.value)}
-          className="gtm-select"
+          className="select"
         >
           <option value="">— choose session —</option>
           {sessions.map((s) => (
@@ -167,7 +167,7 @@ export default function Dialer() {
           <select
             defaultValue=""
             onChange={(e) => pickMic(e.target.value)}
-            className="gtm-select" style={{ maxWidth: 220 }}
+            className="select" style={{ maxWidth: 220 }}
           >
             <option value="">mic: default</option>
             {mics.map((m, i) => (
@@ -178,19 +178,19 @@ export default function Dialer() {
           </select>
         )}
         {callState !== "idle" && (
-          <span className="gtm-chip gtm-chip-green">● {callState}</span>
+          <span className="badge badge-meeting_booked">● {callState}</span>
         )}
       </div>
 
-      {error && <div className="gtm-alert gtm-alert-red">{error}</div>}
+      {error && <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">{error}</div>}
 
       {callState !== "idle" && activeLead && (
-        <div className="gtm-panel space-y-3" style={{ border: "1px solid #86efac" }}>
+        <div className="panel space-y-3 border-emerald-300">
           <div className="flex justify-between">
-            <span style={{ fontWeight: 600 }}>
+            <span className="font-semibold text-slate-900">
               On call: {activeLead.business_name} ({activeLead.phone})
             </span>
-            <button onClick={hangup} className="gtm-btn gtm-btn-red">
+            <button onClick={hangup} className="btn btn-red">
               Hang up
             </button>
           </div>
@@ -205,7 +205,7 @@ export default function Dialer() {
                 </button>
               ))}
             </div>
-            <div className="gtm-muted" style={{ fontSize: 12 }}>DTMF<br />(live call)</div>
+            <div className="text-xs text-slate-400">DTMF<br />(live call)</div>
           </div>
 
           <div className="flex gap-1.5 flex-wrap">
@@ -228,11 +228,13 @@ export default function Dialer() {
         </div>
       )}
 
-      <table className="gtm-table">
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-sm bg-white">
+      <table className="tbl min-w-[760px]">
         <thead>
           <tr>
-            <th>Business</th><th>Phone</th><th>Pri</th>
-            <th>Last disposition</th><th></th>
+            <th className="w-[30%]">Business</th><th className="w-[18%]">Phone</th>
+            <th className="w-[8%] text-center">Pri</th>
+            <th className="w-[24%]">Last disposition</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -246,7 +248,7 @@ export default function Dialer() {
                 <button
                   disabled={!q.phone || callState !== "idle"}
                   onClick={() => call(q)}
-                  className="gtm-btn gtm-btn-green"
+                  className="btn btn-green"
                   style={{ padding: "5px 14px" }}
                 >
                   Call
@@ -255,8 +257,8 @@ export default function Dialer() {
             </tr>
           ))}
         </tbody>
-      </table>
-      {sessionId && queue.length === 0 && <div className="gtm-panel gtm-empty">queue empty</div>}
+      </table></div>
+      {sessionId && queue.length === 0 && <div className="panel text-center text-slate-400 py-10">queue empty</div>}
     </div>
   );
 }

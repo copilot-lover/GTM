@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 
-const STATUSES = ["new","enriching","qualified","outreach_ready","contacted","responded",
-  "meeting_booked","proposal","won","lost","rejected","do_not_call"];
+const STATUSES = ["new","enriching","qualified","signal_holding","outreach_ready","contacted",
+  "responded","qualified_conversation","meeting_booked","meeting_held","proposal","won",
+  "lost","rejected","do_not_call","unreachable","archived"];
 
 export default function Leads() {
   const [items, setItems] = useState<any[]>([]);
@@ -25,53 +26,71 @@ export default function Leads() {
   useEffect(() => { load(); }, [q, status]);
 
   return (
-    <div className="gtm-page">
-      <div className="gtm-toolbar">
-        <h1>Leads</h1>
-        <input className="gtm-input" placeholder="search…" value={q}
-               onChange={(e) => setQ(e.target.value)} style={{ width: 240 }} />
-        <select className="gtm-select" value={status}
+    <div className="w-full max-w-7xl mx-auto space-y-4">
+      <div className="flex flex-wrap gap-3 items-center">
+        <h1 className="text-xl font-semibold text-slate-900">Leads</h1>
+        <input
+          className="input w-64"
+          placeholder="Search businesses…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        <select className="select" value={status}
                 onChange={(e) => setStatus(e.target.value)}>
-          <option value="">all statuses</option>
+          <option value="">All statuses</option>
           {STATUSES.map((s) => <option key={s}>{s}</option>)}
         </select>
-        <span className="gtm-count">{total} total</span>
+        <span className="mono text-xs text-slate-400 ml-auto">{total} total</span>
       </div>
 
-      {error && <div className="gtm-alert gtm-alert-red">{error}</div>}
+      {error && (
+        <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
-      <table className="gtm-table">
-        <thead>
-          <tr>
-            <th>Business</th><th>City</th><th>Score</th><th>Tier</th>
-            <th>Status</th><th>Pain</th><th>Offer</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((l) => (
-            <tr key={l.id}>
-              <td>
-                <a className="gtm-link" href={`/leads/${l.id}`}>{l.business_name}</a>
-              </td>
-              <td>{[l.city, l.state].filter(Boolean).join(", ")}</td>
-              <td className="mono">{l.lead_score ?? "—"}</td>
-              <td className="mono">{l.priority_tier ?? "—"}</td>
-              <td>
-                <span className={`gtm-chip gtm-chip-${
-                  l.status === "responded" || l.status === "meeting_booked" ? "green"
-                  : l.status === "rejected" || l.status === "do_not_call" ? "gray"
-                  : "amber"}`}>
-                  {l.status}
-                </span>
-              </td>
-              <td className="gtm-muted">{l.primary_pain ?? "—"}</td>
-              <td className="gtm-muted">{l.recommended_offer ?? "—"}</td>
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-sm bg-white">
+        <table className="tbl min-w-[900px]">
+          <thead>
+            <tr>
+              <th className="w-[26%]">Business</th>
+              <th className="w-[13%]">Location</th>
+              <th className="w-[8%] text-center">Score</th>
+              <th className="w-[7%] text-center">Tier</th>
+              <th className="w-[14%]">Status</th>
+              <th className="w-[16%]">Pain</th>
+              <th className="w-[16%]">Offer</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map((l) => (
+              <tr key={l.id}>
+                <td>
+                  <a className="text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors"
+                     href={`/leads/${l.id}`}>
+                    {l.business_name}
+                  </a>
+                  <div className="text-xs text-slate-400">{l.vertical ?? ""}</div>
+                </td>
+                <td className="whitespace-nowrap text-slate-600">
+                  {[l.city, l.state].filter(Boolean).join(", ") || "—"}
+                </td>
+                <td className="mono text-center">{l.lead_score ?? "—"}</td>
+                <td className="mono text-center">{l.priority_tier ?? "—"}</td>
+                <td>
+                  <span className={`badge badge-${l.status}`}>{l.status}</span>
+                </td>
+                <td className="text-slate-500">{l.primary_pain ?? "—"}</td>
+                <td className="text-slate-500">{l.recommended_offer ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {items.length === 0 && (
-        <div className="gtm-panel gtm-empty">no leads yet — run your first batch</div>
+        <div className="panel text-center text-slate-400 py-10">
+          no leads yet — run your first batch from the Agents page
+        </div>
       )}
     </div>
   );
