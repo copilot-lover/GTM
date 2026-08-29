@@ -1,5 +1,28 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import type { SendDecision } from "../types";
+
+function SendReadiness({ messageId }: { messageId: string }) {
+  const [decision, setDecision] = useState<SendDecision | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    api<SendDecision>(`/outreach/messages/${messageId}/send-decision`)
+      .then((d) => { if (live) setDecision(d); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [messageId]);
+
+  if (!decision) return <span className="text-slate-400 text-xs">checking…</span>;
+  const reasons = decision.reasons
+    ?? (decision.checks ?? []).filter((c) => !c.passed).map((c) => `${c.name}: ${c.detail}`);
+  return (
+    <span title={reasons.join("\n") || "all checks passed"}
+          className={`badge ${decision.allowed ? "badge-ready" : "badge-do_not_call"}`}>
+      {decision.allowed ? "✅ CAN_SEND" : "⛔ CANNOT_SEND"}
+    </span>
+  );
+}
 
 export default function Approvals() {
   const [items, setItems] = useState<any[]>([]);
@@ -39,8 +62,11 @@ export default function Approvals() {
           <div key={m.id} className="panel space-y-3">
             <div className="flex justify-between items-center">
               <span className="font-semibold text-slate-900 text-[15.5px]">{m.business_name}</span>
-              <span className="text-slate-500 text-xs">
-                {m.city}, {m.state} · {m.primary_pain ?? "—"} → {m.recommended_offer ?? "—"}
+              <span className="flex items-center gap-2">
+                <SendReadiness messageId={m.id} />
+                <span className="text-slate-500 text-xs">
+                  {m.city}, {m.state} · {m.primary_pain ?? "—"} → {m.recommended_offer ?? "—"}
+                </span>
               </span>
             </div>
             <div className="bg-slate-50 rounded-xl px-4 py-3.5 text-sm whitespace-pre-wrap text-slate-700 border border-slate-100">

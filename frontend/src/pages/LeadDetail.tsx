@@ -1,6 +1,81 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
+import type { LeadWhy, LeadWhyContribution } from "../types";
+
+function contribLabel(c: LeadWhyContribution): string {
+  if (typeof c.value === "string" && c.value) return c.value;
+  return c.label ?? c.component ?? "signal";
+}
+
+function contribPoints(c: LeadWhyContribution): number | null {
+  if (typeof c.points === "number") return c.points;
+  if (typeof c.signal_score === "number") return c.signal_score;
+  return null;
+}
+
+function whyTier(why: LeadWhy): string | null {
+  const score = typeof why.score === "number" ? why.score : why.priority;
+  if (typeof score !== "number") return null;
+  const contributions = why.contributions ?? why.components?.contributions ?? [];
+  const recent = contributions.some(
+    (c) => typeof c.age_days === "number" && c.age_days <= 7,
+  );
+  if (score >= 70 && recent) return "P1";
+  if (score >= 50) return "P2";
+  return "P3";
+}
+
+function WhyPanel({ leadId }: { leadId: string }) {
+  const [why, setWhy] = useState<LeadWhy | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api<LeadWhy>(`/gtm/leads/${leadId}/why`)
+      .then(setWhy)
+      .catch((e: any) => setError(e.message));
+  }, [leadId]);
+
+  if (error) return null;
+  if (!why) return <div className="panel text-slate-400 text-sm">loading why…</div>;
+
+  const contributions = why.contributions ?? why.components?.contributions ?? [];
+  if (why.score == null && contributions.length === 0) {
+    return (
+      <div className="panel">
+        <h2>Why</h2>
+        <div className="gtm-empty">no scores computed yet</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="panel">
+      <div className="flex flex-wrap gap-2 items-center mb-3">
+        <h2 style={{ marginBottom: 0 }}>Why</h2>
+        <span className="badge badge-new mono ml-auto">{why.score ?? "—"}</span>
+        {whyTier(why) && (
+          <span className="badge badge-qualified mono">{whyTier(why)}</span>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        {contributions.map((c, i) => {
+          const pts = contribPoints(c);
+          return (
+            <div key={i} className="text-sm text-slate-700 flex gap-2">
+              <span className="mono text-emerald-600">{pts != null ? `+${pts}` : "+"}</span>
+              <span>{contribLabel(c)}</span>
+              {typeof c.age_days === "number" && (
+                <span className="text-xs text-slate-400">{c.age_days}d old</span>
+              )}
+            </div>
+          );
+        })}
+        {contributions.length === 0 && <div className="gtm-empty">no contribution breakdown</div>}
+      </div>
+    </div>
+  );
+}
 
 export default function LeadDetail() {
   const { id } = useParams();
@@ -52,6 +127,21 @@ export default function LeadDetail() {
             <div className="gtm-kv"><span>Recommended offer</span><span>{l.recommended_offer ?? "—"}</span></div>
             <div className="gtm-kv"><span>Owner</span><span>{l.owner_name ?? "—"}</span></div>
             <div className="gtm-kv"><span>Fit status</span><span>{l.fit_status}</span></div>
+          </div>
+          <WhyPanel leadId={id!} />
+          <div className="panel">
+            <h2>Outbound messages</h2>
+            <div className="space-y-1.5">
+              {(data.messages ?? []).map((m: any) => (
+                <div key={m.id} className="flex items-center gap-2 text-sm">
+                  <span className={`badge badge-${m.status}`}>{m.gtm_stage ?? m.status}</span>
+                  <span className="text-slate-500 text-xs">
+                    step {m.sequence_step ?? "—"} · {new Date(m.created_at).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+              {(data.messages ?? []).length === 0 && <div className="gtm-empty">no messages</div>}
+            </div>
           </div>
           <div className="panel">
             <h2>Next action</h2>

@@ -1,0 +1,103 @@
+{
+  "name": "Orbit - Daily GTM Health Audit",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "0 7 * * *" }] } },
+      "id": "cron_audit",
+      "name": "Daily 7 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8100/api/control-plane/audit/run",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] }
+      },
+      "id": "run_audit",
+      "name": "Run audit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $json;\nconst score = r.overall_score ?? 'N/A';\nconst problems = (r.report?.problems || []);\nconst sections = Object.keys(r.report || {}).filter(k => k !== 'problems');\nlet msg = `*Daily GTM Health Audit — Score: ${score}/100*\\n`;\nmsg += `Sections: ${sections.join(', ')}\\n`;\nif (problems.length) {\n  msg += `\\n*Problems (${problems.length}):*\\n`;\n  problems.forEach((p, i) => msg += `${i+1}. ${p}\\n`);\n} else {\n  msg += `\\nNo problems detected.`;\n}\nreturn { telegramMessage: msg, score };"
+      },
+      "id": "format_digest",
+      "name": "Format digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://127.0.0.1:8100/api/telegram/settings",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] }
+      },
+      "id": "get_telegram",
+      "name": "Get Telegram settings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "version": 2 },
+          "conditions": [
+            { "leftValue": "={{ $json.enabled }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check_enabled",
+      "name": "Telegram enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $json.bot_token }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $json.chat_id, text: $('Format digest').item.json.telegramMessage, parse_mode: 'Markdown' }) }}"
+      },
+      "id": "send_telegram",
+      "name": "Send Telegram digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, -60],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": { "jsCode": "console.log('Telegram not enabled; audit digest: ' + $('Format digest').item.json.telegramMessage);" },
+      "id": "log_no_telegram",
+      "name": "Log digest (no Telegram)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 60]
+    }
+  ],
+  "connections": {
+    "Daily 7 AM": { "main": [[{ "node": "Run audit", "type": "main", "index": 0 }]] },
+    "Run audit": { "main": [[{ "node": "Format digest", "type": "main", "index": 0 }]] },
+    "Format digest": { "main": [[{ "node": "Get Telegram settings", "type": "main", "index": 0 }]] },
+    "Telegram enabled?": { "main": [[{ "node": "Send Telegram digest", "type": "main", "index": 0 }], [{ "node": "Log digest (no Telegram)", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "Daily GTM health audit at 7 AM. Runs POST /api/control-plane/audit/run, formats the report as a Telegram digest, and sends it if Telegram is configured."
+  }
+}

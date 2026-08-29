@@ -1,12 +1,20 @@
 import { useState } from "react";
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { getToken, clearToken, api } from "./api";
-import Dashboard from "./pages/Dashboard";
 import Leads from "./pages/Leads";
 import LeadDetail from "./pages/LeadDetail";
 import Approvals from "./pages/Approvals";
 import Dialer from "./pages/Dialer";
 import HiringIntent from "./pages/HiringIntent";
+import ControlCenter from "./pages/ControlCenter";
+import AgentsDashboard from "./pages/AgentsDashboard";
+import TodayBestLeads from "./pages/TodayBestLeads";
+import SignalsDashboard from "./pages/SignalsDashboard";
+import ProviderDashboard from "./pages/ProviderDashboard";
+import MailboxManager from "./pages/MailboxManager";
+import AlertsCenter from "./pages/AlertsCenter";
+import AuditHistory from "./pages/AuditHistory";
+import TelegramSettings from "./pages/TelegramSettings";
 
 function Login({ onLogin }: { onLogin: () => void }) {
   const [email, setEmail] = useState("");
@@ -73,11 +81,19 @@ function Login({ onLogin }: { onLogin: () => void }) {
 }
 
 const NAV = [
-  ["◎", "Agents", "/"],
+  ["◎", "Control Center", "/control-center"],
+  ["⚙", "Agents", "/agents"],
+  ["★", "Best Leads", "/best-leads"],
+  ["📡", "Signals", "/signals"],
   ["☰", "Leads", "/leads"],
   ["⚡", "Hiring Intent", "/hiring-intent"],
-  ["☏", "Dialer", "/dialer"],
   ["✓", "Approvals", "/approvals"],
+  ["☏", "Dialer", "/dialer"],
+  ["✉", "Mailboxes", "/mailboxes"],
+  ["☁", "Providers", "/providers"],
+  ["⚠", "Alerts", "/alerts"],
+  ["⟲", "Audit", "/audit"],
+  ["✈", "Telegram", "/telegram"],
 ] as const;
 
 function Shell({ children }: { children: React.ReactNode }) {
@@ -133,12 +149,21 @@ export default function App() {
       ) : (
         <Shell>
           <Routes>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<Navigate to="/control-center" replace />} />
+            <Route path="/control-center" element={<ControlCenter />} />
+            <Route path="/agents" element={<AgentsDashboard />} />
+            <Route path="/best-leads" element={<TodayBestLeads />} />
+            <Route path="/signals" element={<SignalsDashboard />} />
             <Route path="/leads" element={<Leads />} />
             <Route path="/leads/:id" element={<LeadDetail />} />
             <Route path="/approvals" element={<Approvals />} />
             <Route path="/dialer" element={<Dialer />} />
             <Route path="/hiring-intent" element={<HiringIntent />} />
+            <Route path="/mailboxes" element={<MailboxManager />} />
+            <Route path="/providers" element={<ProviderDashboard />} />
+            <Route path="/alerts" element={<AlertsCenter />} />
+            <Route path="/audit" element={<AuditHistory />} />
+            <Route path="/telegram" element={<TelegramSettings />} />
           </Routes>
         </Shell>
       )}

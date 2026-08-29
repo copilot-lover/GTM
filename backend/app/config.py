@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +32,48 @@ class Settings(BaseSettings):
     orbit_physical_address: str = ""
 
     ai_daily_budget_usd: float = 10.0
+
+    # --- In-app provider layer ---
+    # Ordered LLM fallback chain (first successful model wins).
+    # GTM subagents run on nemotron-3 (free) and fall back to MiMo v2.5.
+    llm_model_chain: str = (
+        "nvidia/nemotron-3-super-120b-a12b:free,"
+        "nvidia/nemotron-3-nano-30b-a3b:free,"
+        "xiaomi/mimo-v2.5"
+    )
+    # OpenRouter key; OPENROUTER_API_KEY is accepted as an alias.
+    llm_api_key: str = Field(default="", validation_alias=AliasChoices(
+        "LLM_API_KEY", "OPENROUTER_API_KEY"))
+
+    # --- Background workers (in-process job queue) ---
+    workers_enabled: bool = False
+    worker_pools_json: str = (
+        '{"ai":2,"enrichment":2,"verification":2,"outbound":2,'
+        '"discovery":1,"meeting":1}'
+    )
+    # Optional per-provider in-flight caps, e.g. {"openrouter":4}
+    provider_concurrency_json: str = "{}"
+
+    # Fernet key material for encrypting secrets at rest (telegram bot token).
+    app_secret: str = ""
+
+    # --- GTM agent layer ---
+    # Copy-generation retry loop ceiling before a draft is HELD for human review.
+    gtm_copy_max_attempts: int = 3
+    # Default agent cadences (seconds), overridable via env JSON.
+    gtm_agent_schedules_json: str = (
+        '{"GTM_INTENT": 900, "GTM_QA": 3600, "GTM_LEADS": 86400, '
+        '"GTM_OUTBOUND": 60, "GTM_REPLIES": 300}'
+    )
+
+    @property
+    def gtm_agent_schedules(self) -> dict[str, int]:
+        import json
+        return json.loads(self.gtm_agent_schedules_json)
+
+    @property
+    def llm_model_chain_list(self) -> list[str]:
+        return [m.strip() for m in self.llm_model_chain.split(",") if m.strip()]
 
 
 @lru_cache

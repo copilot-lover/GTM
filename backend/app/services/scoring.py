@@ -23,9 +23,12 @@ PRIORITY_WEIGHTS = {"intent": 0.40, "fit": 0.30, "contact_quality": 0.20, "histo
 
 OFFER_CATALOG = {
     "ai_receptionist",
+    "ai_phone_receptionist",
+    "voice_ai_receptionist",
     "missed_call_recovery",
     "after_hours_booking",
     "lead_qualification",
+    "web_lead_handling",
     "website_conversion",
     "follow_up_automation",
     "review_generation",

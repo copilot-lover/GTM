@@ -3,18 +3,46 @@ No code path here touches the dialer, SMS, or normal cold outreach."""
 
 import json
 from datetime import datetime, timezone
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from psycopg.rows import dict_row
 
 import app.db as db
 from app.core.deps import require_workspace
-from app.services import scoring
+from app.services import scoring, hiring_signals
 
 router = APIRouter(prefix="/hiring-intent", tags=["hiring-intent"])
 
 SIGNAL_EXPIRY_DAYS = 30
+
+
+class IngestFromProvidersIn(BaseModel):
+    provider: str | None = None
+    filters: dict[str, Any] | None = None
+
+
+class SignalOut(BaseModel):
+    id: str
+    workspace_id: str
+    company_id: str
+    source: str
+    source_job_id: str | None
+    job_url: str | None
+    title: str
+    description: str
+    role_category: str
+    intent_category: str
+    pain_hypothesis: str | None
+    orbit_product_fit: str | None
+    confidence: float
+    signal_score: int
+    freshness_multiplier: float
+    expires_at: datetime | None
+    status: str
+    posted_at: datetime | None
+    discovered_at: datetime
 
 
 class PostingIn(BaseModel):
@@ -303,3 +331,97 @@ def approve(req: ApproveIn, user: dict = Depends(require_workspace)):
             (str(user["id"]), req.queue_item_id, user["workspace_id"]),
         )
     return {"ok": True}
+
+
+@router.post("/ingest-from-providers")
+def ingest_from_providers(req: IngestFromProvidersIn, user: dict = Depends(require_workspace)):
+    """Discover jobs from registered job source adapters, normalize, upsert hiring_signals."""
+    from app.providers import registry, ProviderUnavailable
+
+    provider_name = req.provider
+    filters = req.filters or {}
+    query = filters.get("title_contains", "") or "receptionist dispatcher customer service"
+
+    providers_to_use = []
+    if provider_name:
+        try:
+            providers_to_use.append((provider_name, registry.get(provider_name)))
+        except ProviderUnavailable:
+            raise HTTPException(404, f"Provider '{provider_name}' not available")
+    else:
+        for name in ("jobspipe", "theirstack", "jsearch", "fantastic_jobs", "adzuna"):
+            try:
+                providers_to_use.append((name, registry.get(name)))
+            except ProviderUnavailable:
+                pass
+
+    if not providers_to_use:
+        return {"ingested": 0, "by_provider": {}, "errors": ["no providers available"]}
+
+    total_ingested = 0
+    by_provider = {}
+    errors = []
+
+    for name, provider in providers_to_use:
+        try:
+            postings = provider.search(query, filters)
+            postings = hiring_signals.dedupe_postings(postings)
+            count = 0
+            for raw in postings:
+                signal_id = hiring_signals.upsert_hiring_signal(user["workspace_id"], raw, name)
+                if signal_id:
+                    count += 1
+            total_ingested += count
+            by_provider[name] = count
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+
+    return {"ingested": total_ingested, "by_provider": by_provider, "errors": errors}
+
+
+@router.get("/signals")
+def list_signals(
+    user: dict = Depends(require_workspace),
+    status: str | None = Query(None),
+    role_category: str | None = Query(None),
+    min_score: int | None = Query(None),
+    max_age_days: int | None = Query(None),
+    company_id: str | None = Query(None),
+    limit: int = Query(50, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """Filtered list of hiring signals with pagination."""
+    with db.get_pool().connection() as conn:
+        conn.row_factory = dict_row
+        where = ["hs.workspace_id = %s"]
+        params = [user["workspace_id"]]
+        if status:
+            where.append("hs.status = %s")
+            params.append(status)
+        if role_category:
+            where.append("hs.role_category = %s")
+            params.append(role_category)
+        if min_score is not None:
+            where.append("hs.signal_score >= %s")
+            params.append(min_score)
+        if max_age_days is not None:
+            where.append("hs.posted_at >= now() - interval '%s days'" % max_age_days)
+        if company_id:
+            where.append("hs.company_id = %s")
+            params.append(company_id)
+        where_sql = " AND ".join(where)
+        rows = conn.execute(
+            f"""SELECT hs.* FROM hiring_signals hs
+               WHERE {where_sql}
+               ORDER BY hs.signal_score DESC, hs.discovered_at DESC
+               LIMIT %s OFFSET %s""",
+            (*params, limit, offset),
+        ).fetchall()
+    return {"items": rows, "limit": limit, "offset": offset}
+
+
+@router.post("/refresh-scores")
+def refresh_scores(user: dict = Depends(require_workspace)):
+    """Recompute scores for all active signals using current company data."""
+    count = hiring_signals.refresh_scores(user["workspace_id"])
+    return {"refreshed": count}

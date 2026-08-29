@@ -89,6 +89,39 @@ def apply_send_result(message_id: str, req: SendResultIn,
         raise HTTPException(409, str(e))
 
 
+@router.get("/messages/{message_id}/send-decision")
+def send_decision(message_id: str, user: dict = Depends(require_workspace)):
+    """Full structural gate evaluation for this message (auditable)."""
+    from app.services import outbound_gate
+
+    return outbound_gate.can_send(user["workspace_id"], message_id)
+
+
+@router.get("/messages/{message_id}/why")
+def why(message_id: str, user: dict = Depends(require_workspace)):
+    """Stage history + latest QA runs + send decision for the Why panel."""
+    from app.services import gtm_lifecycle, outbound_gate
+
+    ws = user["workspace_id"]
+    with db.get_pool().connection() as conn:
+        conn.row_factory = dict_row
+        latest_qa = conn.execute(
+            """SELECT DISTINCT ON (object_type)
+                      object_type, status, score, findings, failed_rules,
+                      attempt, created_at
+               FROM qa_runs
+               WHERE workspace_id=%s AND object_id=%s
+                     AND object_type IN ('copy','compliance')
+               ORDER BY object_type, created_at DESC""",
+            (ws, message_id),
+        ).fetchall()
+    return {
+        "stage_history": gtm_lifecycle.stage_history(ws, message_id),
+        "latest_qa": latest_qa,
+        "send_decision": outbound_gate.can_send(ws, message_id),
+    }
+
+
 class ReviewReplyIn(BaseModel):
     lead_id: str
     text: str

@@ -1,15 +1,20 @@
 from app.routers import (
     auth,
     companies,
+    control_plane,
     dashboard,
+    enrichment,
     feed,
     dialer,
     health,
     hiring_intent,
     leads,
     outreach,
+    opportunity,
     pipeline_ops,
+    scheduler,
     scrape,
+    telegram,
 )
 
 routes = [
@@ -24,4 +29,9 @@ routes = [
     dashboard.router,
     feed.router,
     scrape.router,
+    enrichment.router,
+    opportunity.router,
+    scheduler.router,
+    control_plane.router,
+    telegram.router,
 ]

@@ -105,15 +105,19 @@
        "output": 3
       },
       {
-       "value2": "lead.draft_requested",
-       "output": 4
-      }
-     ]
+     "value2": "lead.draft_requested",
+        "output": 4
+       },
+       {
+        "value2": "signal.scoring_requested",
+        "output": 5
+       }
+      ]
+     },
+     "options": {}
     },
-    "options": {}
-   },
-   "id": "route1",
-   "name": "Route by Event",
+    "id": "route1",
+    "name": "Route by Event",
    "type": "n8n-nodes-base.switch",
    "typeVersion": 1,
    "position": [
@@ -811,16 +815,144 @@
     "specifyBody": "json",
     "jsonBody": "={ JSON.stringify({ agent_name: 'email_personalization_agent', tokens_in: $('Parse: draft').item.json.usage.prompt_tokens || 0, tokens_out: $('Parse: draft').item.json.usage.completion_tokens || 0, model: $env.ORBIT_CHEAP_MODEL || 'openai/gpt-4o-mini' }) }"
    },
-   "id": "cost_draft",
-   "name": "Cost: draft",
-   "type": "n8n-nodes-base.httpRequest",
-   "typeVersion": 4.2,
-   "position": [
-    2200,
-    740
-   ],
-   "onError": "continueRegularOutput"
-  }
+    "id": "cost_draft",
+    "name": "Cost: draft",
+    "type": "n8n-nodes-base.httpRequest",
+    "typeVersion": 4.2,
+    "position": [
+     2200,
+     740
+    ],
+    "onError": "continueRegularOutput"
+   },
+   {
+    "parameters": {
+     "method": "GET",
+     "url": "=http://127.0.0.1:8100/api/pipeline/{{ $('Normalize Event').item.json.lead_id }}/context/signal",
+     "sendHeaders": true,
+     "headerParameters": {
+      "parameters": [
+       {
+        "name": "Authorization",
+        "value": "={{$env.ORBIT_SERVICE_TOKEN}}"
+       }
+      ]
+     }
+    },
+    "id": "ctx_signal",
+    "name": "Context: signal_scoring",
+    "type": "n8n-nodes-base.httpRequest",
+    "typeVersion": 4.2,
+    "position": [
+     1320,
+     1000
+    ],
+    "retryOnFail": true,
+    "maxTries": 3,
+    "waitBetweenTries": 5000
+   },
+   {
+    "parameters": {
+     "method": "POST",
+     "url": "https://openrouter.ai/api/v1/chat/completions",
+     "sendHeaders": true,
+     "headerParameters": {
+      "parameters": [
+       {
+        "name": "Authorization",
+        "value": "={{$env.ORBIT_SERVICE_TOKEN}}"
+       },
+       {
+        "name": "Authorization",
+        "value": "=Bearer {{$env.OPENROUTER_API_KEY}}"
+       }
+      ]
+     },
+     "sendBody": true,
+     "specifyBody": "json",
+     "jsonBody": "={{ JSON.stringify({ model: $env.ORBIT_CHEAP_MODEL || 'openai/gpt-4o-mini', messages: [{ role: 'system', content: =$json.system }, { role: 'user', content: =$json.user }] }) }}"
+    },
+    "id": "llm_signal",
+    "name": "LLM: signal_scoring",
+    "type": "n8n-nodes-base.httpRequest",
+    "typeVersion": 4.2,
+    "position": [
+     1540,
+     1000
+    ],
+    "retryOnFail": true,
+    "maxTries": 3,
+    "waitBetweenTries": 5000
+   },
+   {
+    "parameters": {
+     "jsCode": "const r = $json.choices?.[0]?.message?.content || '';\nconst m = r.match(/\\{[\\s\\S]*\\}/);\nif (!m) throw new Error('no JSON in LLM response: ' + r.slice(0,200));\nreturn { llm: JSON.parse(m[0]), usage: $json.usage || {} };"
+    },
+    "id": "parse_signal",
+    "name": "Parse: signal_scoring",
+    "type": "n8n-nodes-base.code",
+    "typeVersion": 2,
+    "position": [
+     1760,
+     1000
+    ]
+   },
+   {
+    "parameters": {
+     "method": "POST",
+     "url": "=http://127.0.0.1:8100/api/pipeline/{{ $('Normalize Event').item.json.lead_id }}/apply/signal",
+     "sendHeaders": true,
+     "headerParameters": {
+      "parameters": [
+       {
+        "name": "Authorization",
+        "value": "={{$env.ORBIT_SERVICE_TOKEN}}"
+       }
+      ]
+     },
+     "sendBody": true,
+     "specifyBody": "json",
+     "jsonBody": "={{ JSON.stringify({ result: $json.llm }) }}"
+    },
+    "id": "apply_signal",
+    "name": "Apply: signal_scoring",
+    "type": "n8n-nodes-base.httpRequest",
+    "typeVersion": 4.2,
+    "position": [
+     1980,
+     1000
+    ],
+    "retryOnFail": true,
+    "maxTries": 3,
+    "waitBetweenTries": 5000
+   },
+   {
+    "parameters": {
+     "method": "POST",
+     "url": "http://127.0.0.1:8100/api/pipeline/agents/record-run",
+     "sendHeaders": true,
+     "headerParameters": {
+      "parameters": [
+       {
+        "name": "Authorization",
+        "value": "={{$env.ORBIT_SERVICE_TOKEN}}"
+       }
+      ]
+     },
+     "sendBody": true,
+     "specifyBody": "json",
+     "jsonBody": "={ JSON.stringify({ agent_name: 'signal_scoring_agent', tokens_in: $('Parse: signal_scoring').item.json.usage.prompt_tokens || 0, tokens_out: $('Parse: signal_scoring').item.json.usage.completion_tokens || 0, model: $env.ORBIT_CHEAP_MODEL || 'openai/gpt-4o-mini' }) }"
+    },
+    "id": "cost_signal",
+    "name": "Cost: signal_scoring",
+    "type": "n8n-nodes-base.httpRequest",
+    "typeVersion": 4.2,
+    "position": [
+     2200,
+     1000
+    ],
+    "onError": "continueRegularOutput"
+   }
  ],
  "connections": {
   "Event Listener (LISTEN orbit_events)": {
@@ -878,37 +1010,42 @@
     ]
    ]
   },
-  "Route by Event": {
-   "main": [
-    [
-     {
-      "node": "Context: qualification",
-      "type": "main",
-      "index": 0
-     },
-     {
-      "node": "Context: enrichment",
-      "type": "main",
-      "index": 0
-     },
-     {
-      "node": "Context: audit",
-      "type": "main",
-      "index": 0
-     },
-     {
-      "node": "Context: offer",
-      "type": "main",
-      "index": 0
-     },
-     {
-      "node": "Context: draft",
-      "type": "main",
-      "index": 0
-     }
+   "Route by Event": {
+    "main": [
+     [
+      {
+       "node": "Context: qualification",
+       "type": "main",
+       "index": 0
+      },
+      {
+       "node": "Context: enrichment",
+       "type": "main",
+       "index": 0
+      },
+      {
+       "node": "Context: audit",
+       "type": "main",
+       "index": 0
+      },
+      {
+       "node": "Context: offer",
+       "type": "main",
+       "index": 0
+      },
+      {
+       "node": "Context: draft",
+       "type": "main",
+       "index": 0
+      },
+      {
+       "node": "Context: signal_scoring",
+       "type": "main",
+       "index": 0
+      }
+     ]
     ]
-   ]
-  },
+   },
   "Context: qualification": {
    "main": [
     [
@@ -1140,17 +1277,61 @@
     ]
    ]
   },
-  "Apply: draft": {
-   "main": [
-    [
-     {
-      "node": "Cost: draft",
-      "type": "main",
-      "index": 0
-     }
+   "Apply: draft": {
+    "main": [
+     [
+      {
+       "node": "Cost: draft",
+       "type": "main",
+       "index": 0
+      }
+     ]
     ]
-   ]
-  }
+   },
+   "Context: signal_scoring": {
+    "main": [
+     [
+      {
+       "node": "LLM: signal_scoring",
+       "type": "main",
+       "index": 0
+      }
+     ]
+    ]
+   },
+   "LLM: signal_scoring": {
+    "main": [
+     [
+      {
+       "node": "Parse: signal_scoring",
+       "type": "main",
+       "index": 0
+      }
+     ]
+    ]
+   },
+   "Parse: signal_scoring": {
+    "main": [
+     [
+      {
+       "node": "Apply: signal_scoring",
+       "type": "main",
+       "index": 0
+      }
+     ]
+    ]
+   },
+   "Apply: signal_scoring": {
+    "main": [
+     [
+      {
+       "node": "Cost: signal_scoring",
+       "type": "main",
+       "index": 0
+      }
+     ]
+    ]
+   }
  },
  "settings": {
   "executionOrder": "v1"

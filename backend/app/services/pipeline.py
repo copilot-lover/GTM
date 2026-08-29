@@ -405,16 +405,24 @@ def apply_draft(workspace_id: str, lead_id: str, parsed: dict) -> dict:
 
 def create_draft_message(workspace_id: str, lead_id: str, parsed: dict,
                          body_text: str) -> str:
+    from app.services import gtm_lifecycle
+
     with db.get_pool().connection() as conn:
         conn.row_factory = psycopg.rows.dict_row
         row = conn.execute(
             """INSERT INTO messages
-               (workspace_id, lead_id, channel, direction, subject, body_text, status)
+               (workspace_id, lead_id, channel, direction, subject, body_text,
+                status)
                VALUES (%s,%s,'email','outbound',%s,%s,'pending_approval')
                RETURNING id""",
             (workspace_id, lead_id, parsed.get("subject"), body_text),
         ).fetchone()
-    return str(row["id"])
+        msg_id = str(row["id"])
+        # managed row enters the GTM machine here: NULL -> QA_PENDING
+        gtm_lifecycle.transition_message(
+            workspace_id, msg_id, "QA_PENDING", actor="GTM_COPY",
+            reason="draft created", conn=conn)
+    return msg_id
 
 
 # ------------------------------------------------------- email verification

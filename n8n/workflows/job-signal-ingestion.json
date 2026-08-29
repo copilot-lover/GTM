@@ -1,0 +1,61 @@
+{
+  "name": "Orbit - Job Signal Ingestion (Daily)",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "0 8 * * *" }] } },
+      "id": "cron_daily",
+      "name": "Daily 8 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8100/api/hiring-intent/ingest-from-providers",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ provider: 'all', filters: {} }) }}"
+      },
+      "id": "ingest",
+      "name": "Ingest from Providers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $json;\nconst count = r.ingested || 0;\nconst byProvider = r.by_provider || {};\nconst errors = r.errors || [];\nconst lines = [`Job signal ingestion complete: ${count} signals ingested.`];\nfor (const [p, c] of Object.entries(byProvider)) lines.push(`  ${p}: ${c}`);\nif (errors.length) lines.push(`  Errors: ${errors.join('; ')}`);\nreturn { log: lines.join('\\n'), count };"
+      },
+      "id": "format_log",
+      "name": "Format log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log($json.log); return $json;"
+      },
+      "id": "log_result",
+      "name": "Log results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    }
+  ],
+  "connections": {
+    "Daily 8 AM": { "main": [[{ "node": "Ingest from Providers", "type": "main", "index": 0 }]] },
+    "Ingest from Providers": { "main": [[{ "node": "Format log", "type": "main", "index": 0 }]] },
+    "Format log": { "main": [[{ "node": "Log results", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "Daily scheduled job signal ingestion from all registered providers. Runs at 8 AM, triggers POST /api/hiring-intent/ingest-from-providers with provider='all'."
+  }
+}

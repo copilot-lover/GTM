@@ -17,7 +17,7 @@
         "headerParameters": { "parameters": [{ "name": "Authorization", "value": "=Bearer {{$env.OPENROUTER_API_KEY}}" }] },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.ORBIT_CHEAP_MODEL || 'openai/gpt-4o-mini', messages: [{ role: 'system', content: 'Classify the inbound prospect reply into exactly one class: BOOKING_REQUEST, HUMAN_REQUIRED, INTERESTED, NOT_INTERESTED, OBJECTION, PRICE, QUESTION. Reply with JSON only: {intent_class, confidence, suggested_response}' }, { role: 'user', content: String($json.text || JSON.parse($json.payload||'{}').text || '') }] }) }}"
+        "jsonBody": "={{ JSON.stringify({ model: $env.ORBIT_CHEAP_MODEL || 'openai/gpt-4o-mini', messages: [{ role: 'system', content: 'You are a reply classifier for Orbit (AI receptionist agency). Classify the inbound prospect reply into EXACTLY ONE of these 13 categories:\\n\\n1. positive — enthusiastic, wants to move forward\\n2. interested — shows interest but not fully committed\\n3. question — asking about product, pricing, or details\\n4. pricing — specifically asking about cost or pricing\\n5. not_now — interested but wants to revisit later\\n6. referral — refers to someone else or asks to loop someone in\\n7. unsubscribe — wants to be removed from future contact\\n8. negative — not interested, rejects the offer\\n9. wrong_person — reached wrong contact or role\\n10. out_of_office — auto-reply or vacation responder\\n11. automatic_reply — system-generated, not a real person\\n12. meeting_request — wants to schedule a call or meeting\\n13. unknown — cannot determine category\\n\\nReturn ONLY valid JSON: {\"category\": \"...\", \"confidence\": 0.0-1.0, \"suggested_response\": \"...\"}. Confidence must reflect how certain you are. For unsubscribe, always set confidence >= 0.9.' }, { role: 'user', content: String($json.text || JSON.parse($json.payload||'{}').text || '') }] }) }}"
       },
       "id": "llm",
       "name": "LLM: Classify",
@@ -30,7 +30,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const r = $json.choices?.[0]?.message?.content || '';\nconst m = r.match(/\\{[\\s\\S]*\\}/);\nif (!m) throw new Error('no JSON');\nreturn { llm: JSON.parse(m[0]), usage: $json.usage || {} };"
+        "jsCode": "const r = $json.choices?.[0]?.message?.content || '';\nconst m = r.match(/\\{[\\s\\S]*\\}/);\nif (!m) throw new Error('no JSON');\nconst parsed = JSON.parse(m[0]);\n// Normalize to intent_class for backend compatibility\nconst category = (parsed.category || parsed.intent_class || 'unknown').toUpperCase();\nconst CATEGORY_MAP = {\n  'POSITIVE': 'INTERESTED', 'INTERESTED': 'INTERESTED', 'MEETING_REQUEST': 'BOOKING_REQUEST',\n  'QUESTION': 'QUESTION', 'PRICING': 'PRICE', 'NOT_NOW': 'HUMAN_REQUIRED',\n  'REFERRAL': 'HUMAN_REQUIRED', 'UNSUBSCRIBE': 'NOT_INTERESTED', 'NEGATIVE': 'NOT_INTERESTED',\n  'WRONG_PERSON': 'HUMAN_REQUIRED', 'OUT_OF_OFFICE': 'HUMAN_REQUIRED',\n  'AUTOMATIC_REPLY': 'HUMAN_REQUIRED', 'UNKNOWN': 'HUMAN_REQUIRED',\n};\nreturn {\n  llm: {\n    intent_class: CATEGORY_MAP[category] || 'HUMAN_REQUIRED',\n    category: category,\n    confidence: parsed.confidence || 0.5,\n    suggested_response: parsed.suggested_response || null,\n    escalation_needed: ['POSITIVE', 'INTERESTED', 'MEETING_REQUEST', 'NOT_NOW', 'REFERRAL', 'WRONG_PERSON'].includes(category),\n  },\n  usage: $json.usage || {}\n};"
       },
       "id": "parse",
       "name": "Parse JSON",
@@ -40,19 +40,54 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "version": 2 },
+          "conditions": [
+            { "leftValue": "={{ $json.llm.escalation_needed }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check_escalation",
+      "name": "Needs escalation?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "http://127.0.0.1:8100/api/outreach/apply/classification",
         "sendHeaders": true,
         "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ lead_id: JSON.parse($('Reply events').item.json.payload).lead_id, intent_class: $json.llm.intent_class, confidence: $json.llm.confidence || 0, suggested_response: $json.llm.suggested_response || null }) }}"
+        "jsonBody": "={{ JSON.stringify({ lead_id: JSON.parse($('Reply events').item.json.payload).lead_id, intent_class: $json.llm.intent_class, confidence: $json.llm.confidence, suggested_response: $json.llm.suggested_response }) }}"
       },
-      "id": "apply",
+      "id": "apply_escalate",
+      "name": "Apply + Escalate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, -60],
+      "retryOnFail": true,
+      "maxTries": 3
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8100/api/outreach/apply/classification",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ lead_id: JSON.parse($('Reply events').item.json.payload).lead_id, intent_class: $json.llm.intent_class, confidence: $json.llm.confidence, suggested_response: $json.llm.suggested_response }) }}"
+      },
+      "id": "apply_normal",
       "name": "Apply Classification",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [660, 0],
+      "position": [880, 60],
       "retryOnFail": true,
       "maxTries": 3
     },
@@ -70,18 +105,20 @@
       "name": "Record cost",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [880, 0],
+      "position": [1100, 0],
       "onError": "continueRegularOutput"
     }
   ],
   "connections": {
     "Reply events": { "main": [[{ "node": "LLM: Classify", "type": "main", "index": 0 }]] },
     "LLM: Classify": { "main": [[{ "node": "Parse JSON", "type": "main", "index": 0 }]] },
-    "Parse JSON": { "main": [[{ "node": "Apply Classification", "type": "main", "index": 0 }]] },
+    "Parse JSON": { "main": [[{ "node": "Needs escalation?", "type": "main", "index": 0 }]] },
+    "Needs escalation?": { "main": [[{ "node": "Apply + Escalate", "type": "main", "index": 0 }], [{ "node": "Apply Classification", "type": "main", "index": 0 }]] },
+    "Apply + Escalate": { "main": [[{ "node": "Record cost", "type": "main", "index": 0 }]] },
     "Apply Classification": { "main": [[{ "node": "Record cost", "type": "main", "index": 0 }]] }
   },
   "settings": { "executionOrder": "v1" },
   "meta": {
-    "description": "n8n owns LLM classification (spec 10.3). The API persists replies durably + fires the kill switch BEFORE this workflow runs; if n8n is down the reply is never lost — it just stays HUMAN_REQUIRED."
+    "description": "n8n owns LLM classification (spec 10.3) with 13-category taxonomy and confidence scoring. Escalation rules: positive/interested/meeting_request/not_now/referral/wrong_person replies are flagged for human review. The API persists replies durably + fires the kill switch BEFORE this workflow runs; if n8n is down the reply is never lost — it just stays HUMAN_REQUIRED."
   }
 }
