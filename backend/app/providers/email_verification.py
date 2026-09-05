@@ -9,11 +9,9 @@ Confidence: local=60 max, provider=90.
 import logging
 import os
 import re
-from typing import Any
-
 import httpx
 
-from app.providers.base import EmailVerificationProvider, ProviderUnavailable, VerificationResult
+from app.providers.base import EmailVerificationProvider, VerificationResult
 from app.providers.fixtures import FixtureVerifier
 from app.providers.resilience import CircuitBreaker, retry_with_backoff_sync
 

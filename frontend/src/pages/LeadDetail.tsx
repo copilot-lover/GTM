@@ -3,6 +3,47 @@ import { useParams } from "react-router-dom";
 import { api } from "../api";
 import type { LeadWhy, LeadWhyContribution } from "../types";
 
+interface LeadDetailLead {
+  id: string;
+  business_name: string;
+  city: string | null;
+  state: string | null;
+  phone: string | null;
+  status: string;
+  lead_score: number | null;
+  priority_score: number | null;
+  primary_pain: string | null;
+  secondary_pain: string | null;
+  recommended_offer: string | null;
+  owner_name: string | null;
+  fit_status: string;
+  review_reasons?: string[];
+}
+
+interface LeadDetailActivity {
+  id: string;
+  created_at: string;
+  actor: string;
+  summary: string;
+}
+
+interface LeadDetailMessage {
+  id: string;
+  status: string;
+  gtm_stage: string | null;
+  sequence_step: number | null;
+  created_at: string;
+}
+
+interface LeadDetailData {
+  lead: LeadDetailLead;
+  contact: Record<string, unknown>;
+  activities: LeadDetailActivity[];
+  messages: LeadDetailMessage[];
+  calls: unknown[];
+  allowed_transitions: string[];
+}
+
 function contribLabel(c: LeadWhyContribution): string {
   if (typeof c.value === "string" && c.value) return c.value;
   return c.label ?? c.component ?? "signal";
@@ -79,7 +120,7 @@ function WhyPanel({ leadId }: { leadId: string }) {
 
 export default function LeadDetail() {
   const { id } = useParams();
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<LeadDetailData | null>(null);
   const [error, setError] = useState("");
 
   async function load() {
@@ -98,7 +139,8 @@ export default function LeadDetail() {
   if (error) return <div className="w-full max-w-7xl mx-auto space-y-5"><div className="rounded-xl bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">{error}</div></div>;
   if (!data) return <div className="w-full max-w-7xl mx-auto text-slate-400">loading…</div>;
 
-  const l = data.lead;
+  const l = data?.lead;
+  if (!l) return <div className="w-full max-w-7xl mx-auto space-y-5"><div className="rounded-xl bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">Lead not found</div></div>;
   return (
     <div className="w-full max-w-7xl mx-auto space-y-5">
       <div className="flex flex-wrap gap-3 items-center">
@@ -112,7 +154,7 @@ export default function LeadDetail() {
         <span className="badge badge-new mono">{l.lead_score ?? "—"}/10 · {l.priority_score ?? "—"}</span>
       </div>
 
-      {data.lead.review_reasons?.length > 0 && (
+      {(data.lead.review_reasons as string[] | undefined)?.length && (
         <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-2.5 text-sm text-amber-800">
           Review queue: {(data.lead.review_reasons as string[]).join(" · ")}
         </div>
@@ -128,11 +170,11 @@ export default function LeadDetail() {
             <div className="gtm-kv"><span>Owner</span><span>{l.owner_name ?? "—"}</span></div>
             <div className="gtm-kv"><span>Fit status</span><span>{l.fit_status}</span></div>
           </div>
-          <WhyPanel leadId={id!} />
+          <WhyPanel leadId={id ?? ""} />
           <div className="panel">
             <h2>Outbound messages</h2>
             <div className="space-y-1.5">
-              {(data.messages ?? []).map((m: any) => (
+              {(data.messages ?? []).map((m) => (
                 <div key={m.id} className="flex items-center gap-2 text-sm">
                   <span className={`badge badge-${m.status}`}>{m.gtm_stage ?? m.status}</span>
                   <span className="text-slate-500 text-xs">
@@ -146,13 +188,13 @@ export default function LeadDetail() {
           <div className="panel">
             <h2>Next action</h2>
             <div className="flex gap-2 flex-wrap">
-              {data.allowed_transitions.map((t: string) => (
+              {(data.allowed_transitions ?? []).map((t: string) => (
                 <button key={t} onClick={() => transition(t)}
                   className={`gtm-btn ${t === "do_not_call" ? "gtm-btn-red" : "gtm-btn-ghost"}`}>
                   → {t}
                 </button>
               ))}
-              {data.allowed_transitions.length === 0 && (
+              {(data.allowed_transitions ?? []).length === 0 && (
                 <span className="text-slate-400">terminal state</span>
               )}
             </div>
@@ -163,7 +205,7 @@ export default function LeadDetail() {
           <div className="panel">
             <h2>Activity timeline</h2>
             <div className="divide-y divide-slate-100" style={{ maxHeight: "60vh", overflow: "auto" }}>
-              {data.activities.map((a: any) => (
+              {(data.activities ?? []).map((a) => (
                 <div key={a.id} className="py-2.5 border-b border-slate-100 text-sm last:border-b-0">
                   <span className="mono text-[11px] text-slate-400 mr-2">
                     {new Date(a.created_at).toLocaleString()}
@@ -177,7 +219,7 @@ export default function LeadDetail() {
                   {a.summary}
                 </div>
               ))}
-              {data.activities.length === 0 && <div className="gtm-empty">no activity</div>}
+              {(data.activities ?? []).length === 0 && <div className="gtm-empty">no activity</div>}
             </div>
           </div>
         </section>

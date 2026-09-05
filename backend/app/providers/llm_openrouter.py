@@ -89,6 +89,9 @@ class OpenRouterChatLLM(LLMProvider):
             except Exception as exc:  # network-level failure: try next model
                 last_error = exc
                 continue
+            # Robustness: some free-tier models may return empty or malformed payloads
+            if not data.get("choices") or not isinstance(data["choices"], list) or not data["choices"][0].get("message"):
+                raise OpenRouterError(502, f"malformed llm response missing choices: {str(data)[:200]}")
             usage = data.get("usage", {})
             tokens_in = int(usage.get("prompt_tokens") or 0)
             tokens_out = int(usage.get("completion_tokens") or 0)

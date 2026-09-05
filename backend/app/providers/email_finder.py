@@ -8,11 +8,9 @@ Returns highest-confidence match for highest-ranked title.
 
 import logging
 import os
-from typing import Any
-
 import httpx
 
-from app.providers.base import EmailFinderProvider, ProviderUnavailable
+from app.providers.base import EmailFinderProvider
 from app.providers.fixtures import FixtureEmailFinder
 from app.providers.resilience import CircuitBreaker, retry_with_backoff_sync
 

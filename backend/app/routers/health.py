@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
-from psycopg.rows import dict_row
 
 from app.db import get_pool
 

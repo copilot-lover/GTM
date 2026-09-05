@@ -54,13 +54,15 @@ export default function AlertsCenter() {
       {error && <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">{error}</div>}
 
       <div className="flex flex-wrap gap-2 items-center">
-        <select className="select" value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)}>
+        <select className="select" value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)}
+                aria-label="Filter by severity">
           <option value="">All severities</option>
           <option value="critical">Critical</option>
           <option value="warning">Warning</option>
           <option value="info">Info</option>
         </select>
-        <select className="select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+        <select className="select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+                aria-label="Filter by status">
           <option value="">All statuses</option>
           <option value="open">Open</option>
           <option value="acknowledged">Acknowledged</option>

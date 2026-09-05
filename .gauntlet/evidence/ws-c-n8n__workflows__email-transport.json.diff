@@ -1,0 +1,298 @@
+diff --git a/n8n/workflows/email-transport.json b/n8n/workflows/email-transport.json
+index d8dffca..d335c64 100644
+--- a/n8n/workflows/email-transport.json
++++ b/n8n/workflows/email-transport.json
+@@ -2,64 +2,118 @@
+   "name": "Orbit - Email Transport (n8n-owned)",
+   "nodes": [
+     {
+-      "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 15 }] } },
++      "parameters": {
++        "rule": {
++          "interval": [
++            {
++              "field": "minutes",
++              "minutesInterval": 15
++            }
++          ]
++        }
++      },
+       "id": "cron",
+       "name": "Every 15 min",
+       "type": "n8n-nodes-base.scheduleTrigger",
+       "typeVersion": 1.2,
+-      "position": [0, 0]
++      "position": [
++        0,
++        0
++      ]
+     },
+     {
+       "parameters": {
+         "method": "POST",
+         "url": "http://127.0.0.1:8100/api/scheduler/tick",
+         "sendHeaders": true,
+-        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] }
++        "headerParameters": {
++          "parameters": [
++            {
++              "name": "Authorization",
++              "value": "=Bearer {{$env.ORBIT_SERVICE_TOKEN}}"
++            }
++          ]
++        }
+       },
+       "id": "tick",
+       "name": "Scheduler tick",
+       "type": "n8n-nodes-base.httpRequest",
+       "typeVersion": 4.2,
+-      "position": [220, 0],
+-      "onError": "continueRegularOutput"
++      "position": [
++        220,
++        0
++      ],
++      "onError": "continueRegularOutput",
++      "retryOnFail": true,
++      "maxTries": 3,
++      "waitBetweenTries": 5000
+     },
+     {
+       "parameters": {
+         "method": "GET",
+         "url": "http://127.0.0.1:8100/api/outreach/due-sends",
+         "sendHeaders": true,
+-        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] }
++        "headerParameters": {
++          "parameters": [
++            {
++              "name": "Authorization",
++              "value": "=Bearer {{$env.ORBIT_SERVICE_TOKEN}}"
++            }
++          ]
++        }
+       },
+       "id": "due",
+       "name": "Due sends",
+       "type": "n8n-nodes-base.httpRequest",
+       "typeVersion": 4.2,
+-      "position": [440, 0]
++      "position": [
++        440,
++        0
++      ]
+     },
+     {
+-      "parameters": { "fieldToSplitOut": "items", "options": {} },
++      "parameters": {
++        "fieldToSplitOut": "items",
++        "options": {}
++      },
+       "id": "split",
+       "name": "Split items",
+       "type": "n8n-nodes-base.splitOut",
+       "typeVersion": 1,
+-      "position": [660, 0]
++      "position": [
++        660,
++        0
++      ]
+     },
+     {
+       "parameters": {
+         "method": "POST",
+         "url": "=http://127.0.0.1:8100/api/outreach/claim/{{ $json.message_id }}",
+         "sendHeaders": true,
+-        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] },
++        "headerParameters": {
++          "parameters": [
++            {
++              "name": "Authorization",
++              "value": "=Bearer {{$env.ORBIT_SERVICE_TOKEN}}"
++            }
++          ]
++        },
+         "sendBody": true,
+         "specifyBody": "json",
+-        "jsonBody": "={{ JSON.stringify({ idempotency_key: 'cadence:' + $json.message_id }) }}",
+-        "onError": "continueRegularOutput"
++        "jsonBody": "={{ JSON.stringify({ idempotency_key: 'cadence:' + $json.message_id }) }}"
+       },
+       "id": "claim",
+       "name": "Claim (gates in API)",
+       "type": "n8n-nodes-base.httpRequest",
+       "typeVersion": 4.2,
+-      "position": [880, 0]
++      "position": [
++        880,
++        0
++      ],
++      "retryOnFail": true,
++      "maxTries": 3,
++      "waitBetweenTries": 5000,
++      "onError": "continueRegularOutput"
+     },
+     {
+       "parameters": {
+@@ -73,7 +127,10 @@
+       "name": "Send Email (SMTP creds in n8n)",
+       "type": "n8n-nodes-base.emailSend",
+       "typeVersion": 2.1,
+-      "position": [1100, 0],
++      "position": [
++        1100,
++        0
++      ],
+       "retryOnFail": true,
+       "maxTries": 3,
+       "waitBetweenTries": 10000
+@@ -83,7 +140,14 @@
+         "method": "POST",
+         "url": "=http://127.0.0.1:8100/api/outreach/apply/send-result?message_id={{ $('Claim (gates in API)').item.json.message_id }}",
+         "sendHeaders": true,
+-        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] },
++        "headerParameters": {
++          "parameters": [
++            {
++              "name": "Authorization",
++              "value": "=Bearer {{$env.ORBIT_SERVICE_TOKEN}}"
++            }
++          ]
++        },
+         "sendBody": true,
+         "specifyBody": "json",
+         "jsonBody": "={{ JSON.stringify({ ok: true, provider_message_id: $json.messageId || 'n8n-smtp' }) }}"
+@@ -92,14 +156,27 @@
+       "name": "Report sent",
+       "type": "n8n-nodes-base.httpRequest",
+       "typeVersion": 4.2,
+-      "position": [1320, -80]
++      "position": [
++        1320,
++        -80
++      ],
++      "retryOnFail": true,
++      "maxTries": 3,
++      "waitBetweenTries": 5000
+     },
+     {
+       "parameters": {
+         "method": "POST",
+         "url": "=http://127.0.0.1:8100/api/outreach/apply/send-result?message_id={{ $('Claim (gates in API)').item.json.message_id }}",
+         "sendHeaders": true,
+-        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{$env.ORBIT_SERVICE_TOKEN}}" }] },
++        "headerParameters": {
++          "parameters": [
++            {
++              "name": "Authorization",
++              "value": "=Bearer {{$env.ORBIT_SERVICE_TOKEN}}"
++            }
++          ]
++        },
+         "sendBody": true,
+         "specifyBody": "json",
+         "jsonBody": "={{ JSON.stringify({ ok: false, error: String($json.error || 'smtp failure') }) }}"
+@@ -108,19 +185,94 @@
+       "name": "Report failure (DLQ path)",
+       "type": "n8n-nodes-base.httpRequest",
+       "typeVersion": 4.2,
+-      "position": [1320, 80],
+-      "onError": "continueRegularOutput"
++      "position": [
++        1320,
++        80
++      ],
++      "onError": "continueRegularOutput",
++      "retryOnFail": true,
++      "maxTries": 3,
++      "waitBetweenTries": 5000
+     }
+   ],
+   "connections": {
+-    "Every 15 min": { "main": [[{ "node": "Scheduler tick", "type": "main", "index": 0 }]] },
+-    "Scheduler tick": { "main": [[{ "node": "Due sends", "type": "main", "index": 0 }]] },
+-    "Due sends": { "main": [[{ "node": "Split items", "type": "main", "index": 0 }]] },
+-    "Split items": { "main": [[{ "node": "Claim (gates in API)", "type": "main", "index": 0 }]] },
+-    "Claim (gates in API)": { "main": [[{ "node": "Send Email (SMTP creds in n8n)", "type": "main", "index": 0 }]] },
+-    "Send Email (SMTP creds in n8n)": { "main": [[{ "node": "Report sent", "type": "main", "index": 0 }], [{ "node": "Report failure (DLQ path)", "type": "main", "index": 0 }]] }
++    "Every 15 min": {
++      "main": [
++        [
++          {
++            "node": "Scheduler tick",
++            "type": "main",
++            "index": 0
++          }
++        ]
++      ]
++    },
++    "Scheduler tick": {
++      "main": [
++        [
++          {
++            "node": "Due sends",
++            "type": "main",
++            "index": 0
++          }
++        ]
++      ]
++    },
++    "Due sends": {
++      "main": [
++        [
++          {
++            "node": "Split items",
++            "type": "main",
++            "index": 0
++          }
++        ]
++      ]
++    },
++    "Split items": {
++      "main": [
++        [
++          {
++            "node": "Claim (gates in API)",
++            "type": "main",
++            "index": 0
++          }
++        ]
++      ]
++    },
++    "Claim (gates in API)": {
++      "main": [
++        [
++          {
++            "node": "Send Email (SMTP creds in n8n)",
++            "type": "main",
++            "index": 0
++          }
++        ]
++      ]
++    },
++    "Send Email (SMTP creds in n8n)": {
++      "main": [
++        [
++          {
++            "node": "Report sent",
++            "type": "main",
++            "index": 0
++          }
++        ],
++        [
++          {
++            "node": "Report failure (DLQ path)",
++            "type": "main",
++            "index": 0
++          }
++        ]
++      ]
++    }
++  },
++  "settings": {
++    "executionOrder": "v1"
+   },
+-  "settings": { "executionOrder": "v1" },
+   "meta": {
+     "description": "n8n owns email transport (spec 10.3). API keeps approval/verification/suppression gates and idempotent claims; n8n retries with backoff and reports outcomes. After 3 failures the API dead-letters the message. Scheduler tick triggers mailbox assignment before sending. Configure SMTP credentials in n8n once (Credentials > Email Send)."
+   }

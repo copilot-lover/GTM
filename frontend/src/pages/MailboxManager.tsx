@@ -27,12 +27,15 @@ export default function MailboxManager() {
   const [error, setError] = useState("");
   const [showAddMailbox, setShowAddMailbox] = useState(false);
   const [showAddDomain, setShowAddDomain] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [newDomain, setNewDomain] = useState("");
 
-  useEffect(() => {
+  function load() {
     api<Mailbox[]>("/control-plane/mailboxes")
       .then((d) => setItems(Array.isArray(d) ? d : []))
       .catch((e: any) => setError(e.message));
-  }, []);
+  }
+  useEffect(() => { load(); }, []);
 
   const grouped = items.reduce<Record<string, Mailbox[]>>((acc, m) => {
     (acc[m.domain] ??= []).push(m);
@@ -56,9 +59,18 @@ export default function MailboxManager() {
         <div className="panel space-y-3">
           <div className="panel-title">Add Mailbox</div>
           <div className="flex gap-2">
-            <input className="input flex-1" placeholder="user@domain.com" />
-            <button className="btn btn-green" onClick={() => setShowAddMailbox(false)}>Save</button>
-            <button className="btn btn-ghost" onClick={() => setShowAddMailbox(false)}>Cancel</button>
+            <input className="input flex-1" placeholder="user@domain.com" value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)} />
+            <button className="btn btn-green" onClick={async () => {
+              if (!newEmail.trim()) return;
+              try {
+                await api("/control-plane/mailbox", { method: "POST", body: JSON.stringify({ email: newEmail }) });
+                setNewEmail("");
+                setShowAddMailbox(false);
+                load();
+              } catch (e: any) { setError(e.message); }
+            }}>Save</button>
+            <button className="btn btn-ghost" onClick={() => { setShowAddMailbox(false); setNewEmail(""); }}>Cancel</button>
           </div>
         </div>
       )}
@@ -67,9 +79,18 @@ export default function MailboxManager() {
         <div className="panel space-y-3">
           <div className="panel-title">Add Domain</div>
           <div className="flex gap-2">
-            <input className="input flex-1" placeholder="example.com" />
-            <button className="btn btn-green" onClick={() => setShowAddDomain(false)}>Save</button>
-            <button className="btn btn-ghost" onClick={() => setShowAddDomain(false)}>Cancel</button>
+            <input className="input flex-1" placeholder="example.com" value={newDomain}
+              onChange={(e) => setNewDomain(e.target.value)} />
+            <button className="btn btn-green" onClick={async () => {
+              if (!newDomain.trim()) return;
+              try {
+                await api("/control-plane/domain", { method: "POST", body: JSON.stringify({ domain: newDomain }) });
+                setNewDomain("");
+                setShowAddDomain(false);
+                load();
+              } catch (e: any) { setError(e.message); }
+            }}>Save</button>
+            <button className="btn btn-ghost" onClick={() => { setShowAddDomain(false); setNewDomain(""); }}>Cancel</button>
           </div>
         </div>
       )}

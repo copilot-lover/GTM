@@ -43,9 +43,19 @@ def _load_lead(workspace_id: str, lead_id: str) -> dict:
     return row
 
 
+_LEAD_UPDATABLE = frozenset({
+    "status", "lead_score", "fit_status", "priority_score", "evidence",
+    "rejection_reason", "review_reasons", "primary_pain", "secondary_pain",
+    "recommended_offer", "website_findings", "research_report", "fit_detail",
+})
+
+
 def _update_lead(lead_id: str, fields: dict) -> None:
-    sets = ", ".join(f"{k}=%s" for k in fields)
-    values = list(fields.values()) + [lead_id]
+    safe = {k: v for k, v in fields.items() if k in _LEAD_UPDATABLE}
+    if not safe:
+        return
+    sets = ", ".join(f"{k}=%s" for k in safe)
+    values = list(safe.values()) + [lead_id]
     with db.get_pool().connection() as conn:
         conn.execute(
             f"UPDATE leads SET {sets}, updated_at=now() WHERE id=%s", tuple(values)

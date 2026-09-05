@@ -6,7 +6,6 @@ classify_reply: keyword-based escalation check.
 create_human_task: inserts tasks row for human follow-up.
 """
 
-import json
 from datetime import datetime, timedelta
 
 import psycopg.rows

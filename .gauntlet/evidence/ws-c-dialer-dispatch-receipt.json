@@ -1,0 +1,31 @@
+{
+  "file": "n8n/workflows/dialer-dispatch.json",
+  "checks": [
+    {
+      "name": "single Authorization Bearer ORBIT_SERVICE_TOKEN",
+      "ok": true,
+      "detail": "all internal auth single Bearer"
+    },
+    {
+      "name": "POST retryOnFail 3/5000-10000",
+      "ok": true,
+      "detail": "POST retry ok"
+    },
+    {
+      "name": "dialer session idempotency/salted date key or GET check",
+      "ok": true,
+      "detail": "idempotency via body+header salted date"
+    },
+    {
+      "name": "scheduleTrigger 8AM preserved",
+      "ok": true,
+      "detail": "scheduleTrigger 8AM preserved"
+    },
+    {
+      "name": "onError continueRegularOutput preserved",
+      "ok": true,
+      "detail": "onError continueRegularOutput preserved where present"
+    }
+  ],
+  "passed": true
+}

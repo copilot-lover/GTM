@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from psycopg.rows import dict_row
 
 import app.db as db
@@ -11,7 +11,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=10, max_length=128)
     display_name: str | None = None
     workspace_name: str = "Orbit"
 
@@ -19,6 +19,10 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class GuestRequest(BaseModel):
+    display_name: str | None = "Guest"
 
 
 @router.post("/register", status_code=201)
@@ -92,6 +96,49 @@ def login(req: LoginRequest):
         "token": create_token(str(user["id"]), workspace_id),
         "user": {"id": user["id"], "email": user["email"], "display_name": user["display_name"]},
         "workspace_id": workspace_id,
+    }
+
+
+@router.post("/guest", status_code=201)
+def guest(req: GuestRequest = GuestRequest()):
+    """One-click guest/demo — creates ephemeral workspace, bypasses password, marks onboarding complete."""
+    import uuid
+
+    guest_email = f"guest-{uuid.uuid4().hex[:8]}@guest.orbit.local"
+    # random password, never shown — guest re-enters via new guest token next time
+    guest_password = uuid.uuid4().hex + uuid.uuid4().hex
+    workspace_name = f"Demo — {req.display_name or 'Guest'}"
+    with db.get_pool().connection() as conn:
+        conn.row_factory = dict_row
+        user = conn.execute(
+            """INSERT INTO users (email, password_hash, display_name)
+               VALUES (%s,%s,%s) RETURNING id, email, display_name""",
+            (guest_email, hash_password(guest_password), req.display_name or "Guest"),
+        ).fetchone()
+        ws = conn.execute(
+            """INSERT INTO workspaces (name, onboarding_completed, onboarding_step)
+               VALUES (%s, true, 'complete') RETURNING id, name""",
+            (workspace_name,),
+        ).fetchone()
+        conn.execute(
+            """INSERT INTO workspace_members (workspace_id, user_id, role)
+               VALUES (%s,%s,'owner')""",
+            (ws["id"], user["id"]),
+        )
+        audit(
+            conn,
+            actor_type="user",
+            actor_id=str(user["id"]),
+            action="guest_login",
+            entity="user",
+            entity_id=str(user["id"]),
+            workspace_id=str(ws["id"]),
+        )
+    return {
+        "token": create_token(str(user["id"]), str(ws["id"])),
+        "user": {"id": user["id"], "email": user["email"], "display_name": user["display_name"]},
+        "workspace": {"id": ws["id"], "name": ws["name"]},
+        "guest": True,
     }
 
 

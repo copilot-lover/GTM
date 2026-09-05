@@ -2,6 +2,21 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { SendDecision } from "../types";
 
+interface ApprovalMessage {
+  id: string;
+  business_name: string;
+  city: string;
+  state: string;
+  primary_pain: string;
+  recommended_offer: string;
+  subject: string;
+  body_text: string;
+  status: string;
+  gtm_stage: string;
+  sequence_step: number;
+  created_at: string;
+}
+
 function SendReadiness({ messageId }: { messageId: string }) {
   const [decision, setDecision] = useState<SendDecision | null>(null);
 
@@ -9,7 +24,7 @@ function SendReadiness({ messageId }: { messageId: string }) {
     let live = true;
     api<SendDecision>(`/outreach/messages/${messageId}/send-decision`)
       .then((d) => { if (live) setDecision(d); })
-      .catch(() => {});
+      .catch(() => { if (live) setDecision({ allowed: false, reasons: ["could not check"] } as SendDecision); });
     return () => { live = false; };
   }, [messageId]);
 
@@ -25,7 +40,7 @@ function SendReadiness({ messageId }: { messageId: string }) {
 }
 
 export default function Approvals() {
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<ApprovalMessage[]>([]);
   const [error, setError] = useState("");
 
   async function load() {
@@ -35,14 +50,18 @@ export default function Approvals() {
   useEffect(() => { load(); }, []);
 
   async function act(messageId: string, action: "approve" | "reject") {
-    await api("/outreach/approvals", {
-      method: "POST",
-      body: JSON.stringify({
-        message_ids: [messageId], action,
-        reason: action === "reject" ? "operator rejected" : null,
-      }),
-    });
-    load();
+    try {
+      await api("/outreach/approvals", {
+        method: "POST",
+        body: JSON.stringify({
+          message_ids: [messageId], action,
+          reason: action === "reject" ? "operator rejected" : null,
+        }),
+      });
+      load();
+    } catch (e: any) {
+      setError(e.message);
+    }
   }
 
   return (

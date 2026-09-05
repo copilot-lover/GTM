@@ -7,11 +7,9 @@ Return partial data on error (never raise).
 
 import logging
 import os
-from typing import Any
-
 import httpx
 
-from app.providers.base import EnrichmentProvider, ProviderUnavailable
+from app.providers.base import EnrichmentProvider
 from app.providers.fixtures import FixtureEnrichment
 from app.providers.resilience import CircuitBreaker, retry_with_backoff_sync
 

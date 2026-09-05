@@ -9,7 +9,6 @@ Hard gates enforced here, not in the UI:
   - idempotency key prevents double sends
 """
 
-import json
 import re
 
 import psycopg.rows

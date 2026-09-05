@@ -1,7 +1,7 @@
 """Tests for WS-E: Outreach Scheduler — health scoring, scheduler, followups, approval."""
 
 import json
-from datetime import datetime, timedelta, date as date_type
+from datetime import datetime, timedelta, date as date_type, timezone
 from unittest.mock import patch, MagicMock
 
 import psycopg
@@ -50,7 +50,7 @@ def _insert_outbound(conn, ws_id: str, lead_id: str, *,
                      campaign_id: str = None, sequence_id: str = None,
                      eligible_at: datetime = None, deadline: datetime = None,
                      shadow: bool = False) -> str:
-    ea = eligible_at or datetime.utcnow()
+    ea = eligible_at or datetime.now(timezone.utc)
     dl = deadline
     row = conn.execute(
         """INSERT INTO outbound_messages
@@ -69,7 +69,7 @@ def _insert_mailbox_event(conn, mailbox_id: str, event_type: str,
     conn.execute(
         """INSERT INTO mailbox_events (mailbox_id, event_type, metrics, created_at)
            VALUES (%s,%s,%s,%s)""",
-        (mailbox_id, event_type, "{}", created_at or datetime.utcnow()),
+        (mailbox_id, event_type, "{}", created_at or datetime.now(timezone.utc)),
     )
 
 
@@ -127,7 +127,7 @@ class TestHealthScore:
         lead_id = make_lead(db_url, ws_id)
 
         # Insert events: 10 sent, 1 bounce, 1 complaint, 8 delivered
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for i in range(10):
             _insert_mailbox_event(conn, mb_id, "send", now - timedelta(hours=i))
         _insert_mailbox_event(conn, mb_id, "bounce", now - timedelta(hours=1))
@@ -175,7 +175,7 @@ class TestHealthScore:
         lead_id = make_lead(db_url, ws_id)
 
         # 20 sends, all delivered, no bounces/complaints/failures
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for i in range(20):
             conn.execute(
                 """INSERT INTO outbound_messages
@@ -199,7 +199,7 @@ class TestHealthScore:
         lead_id = make_lead(db_url, ws_id)
 
         # 10 sends: 3 bounces, 3 complaints, 4 delivered, 1 failed
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for i in range(10):
             _insert_mailbox_event(conn, mb_id, "send", now - timedelta(hours=i))
         for _ in range(3):
@@ -618,12 +618,12 @@ class TestEligibleMessages:
 
         # Eligible message
         _insert_outbound(conn, ws_id, lead_id, status="queued",
-                         eligible_at=datetime.utcnow() - timedelta(hours=1))
+                         eligible_at=datetime.now(timezone.utc) - timedelta(hours=1))
 
         # Expired deadline
         _insert_outbound(conn, ws_id, lead_id, status="queued",
-                         eligible_at=datetime.utcnow() - timedelta(hours=1),
-                         deadline=datetime.utcnow() - timedelta(hours=2))
+                         eligible_at=datetime.now(timezone.utc) - timedelta(hours=1),
+                         deadline=datetime.now(timezone.utc) - timedelta(hours=2))
 
         # Shadow message (should not appear)
         _insert_outbound(conn, ws_id, lead_id, status="queued", shadow=True)

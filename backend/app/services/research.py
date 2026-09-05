@@ -8,7 +8,6 @@ report with evidence citations. QC gate validates no hallucinated facts.
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
 
 import psycopg.rows
 

@@ -1,0 +1,8 @@
+n8n version: 2.8.4
+validated: 2026-08-31T04:36:56Z
+workflows:
+  - n8n/workflows/email-transport.json: JSON valid, nodes=7, connections=5, retry checks pass, auth single Bearer ORBIT_SERVICE_TOKEN
+  - n8n/workflows/dialer-dispatch.json: JSON valid, nodes=4, connections=3, retry checks pass, idempotency salted date present
+import test: python -m json.tool passed for both workflows
+structural validation: n8n-nodes-base.httpRequest headerParameters single Authorization, scheduleTrigger preserved, onError continueRegularOutput where required
+result: PASS

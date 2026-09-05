@@ -1,8 +1,9 @@
 """Scheduler router — capacity, queue, pause/unpause, health endpoints."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.core.deps import require_workspace
 from app.services import scheduler as sched, flags
 
 router = APIRouter(prefix="/scheduler", tags=["scheduler"])
@@ -14,14 +15,14 @@ class PauseBody(BaseModel):
 
 # ---------------------------------------------------------------- tick
 @router.post("/tick")
-def run_tick():
+def run_tick(user: dict = Depends(require_workspace)):
     result = sched.tick()
     return result
 
 
 # ---------------------------------------------------------------- queue
 @router.get("/queue")
-def get_queue():
+def get_queue(user: dict = Depends(require_workspace)):
     import psycopg.rows
     import app.db as db
     with db.get_pool().connection() as conn:
@@ -49,7 +50,8 @@ def get_queue():
 
 # ---------------------------------------------------------------- pause mailbox
 @router.post("/mailbox/{mailbox_id}/pause")
-def pause_mailbox(mailbox_id: str, body: PauseBody = PauseBody()):
+def pause_mailbox(mailbox_id: str, body: PauseBody = PauseBody(),
+                  user: dict = Depends(require_workspace)):
     ks = _get_ks()
     if body.paused:
         ks.setdefault("pause_mailbox", {})[mailbox_id] = True
@@ -61,7 +63,8 @@ def pause_mailbox(mailbox_id: str, body: PauseBody = PauseBody()):
 
 # ---------------------------------------------------------------- pause domain
 @router.post("/domain/{domain_id}/pause")
-def pause_domain(domain_id: str, body: PauseBody = PauseBody()):
+def pause_domain(domain_id: str, body: PauseBody = PauseBody(),
+                 user: dict = Depends(require_workspace)):
     ks = _get_ks()
     if body.paused:
         ks.setdefault("pause_domain", {})[domain_id] = True
@@ -73,7 +76,8 @@ def pause_domain(domain_id: str, body: PauseBody = PauseBody()):
 
 # ---------------------------------------------------------------- pause campaign
 @router.post("/campaign/{campaign_id}/pause")
-def pause_campaign(campaign_id: str, body: PauseBody = PauseBody()):
+def pause_campaign(campaign_id: str, body: PauseBody = PauseBody(),
+                   user: dict = Depends(require_workspace)):
     ks = _get_ks()
     if body.paused:
         ks.setdefault("pause_campaign", {})[campaign_id] = True
@@ -85,7 +89,7 @@ def pause_campaign(campaign_id: str, body: PauseBody = PauseBody()):
 
 # ---------------------------------------------------------------- health
 @router.get("/health")
-def get_health():
+def get_health(user: dict = Depends(require_workspace)):
     import psycopg.rows
     import app.db as db
     with db.get_pool().connection() as conn:

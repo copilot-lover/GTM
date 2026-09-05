@@ -236,3 +236,49 @@ def lead_reevaluate(lead_id: str, user: dict = Depends(require_workspace)):
         raise HTTPException(404, "lead not found")
     return {"lead_id": lead_id,
             "result": reevaluate(str(user["workspace_id"]), lead_id)}
+
+
+# ── GET /explorer — canonical GTM stage map (Phase 3 data-driven) ───────────
+
+@router.get("/explorer")
+def explorer_map(user: dict = Depends(require_workspace)):
+    """Single source of truth for GTM map — same data powers frontend map,
+    lessons, onboarding, simulation, search, detail panels. Prevents drift."""
+    # Canonical 11-stage GTM + 2 brains + 7 principles (mirrors frontend/src/gtm/canonical.ts)
+    return {
+        "stages": [
+            {"id": "find", "title": "FIND", "short": "Business Discovery — raw to understood", "state": "new"},
+            {"id": "understand", "title": "UNDERSTAND", "short": "Who is this business?"},
+            {"id": "qualify", "title": "QUALIFY", "short": "Is this actually a good prospect?"},
+            {"id": "identify", "title": "IDENTIFY", "short": "Who should we talk to?"},
+            {"id": "opportunity", "title": "BUILD OPPORTUNITY", "short": "Opportunity Profile — bridge"},
+            {"id": "decide", "title": "DECIDE", "short": "Message Strategy — personalized angle"},
+            {"id": "gate", "title": "OUTBOUND GATE", "short": "Should Orbit contact them?"},
+            {"id": "outreach", "title": "OUTREACH", "short": "Controlled sequence that reacts to behavior"},
+            {"id": "response", "title": "UNDERSTAND RESPONSE", "short": "What does prospect mean?"},
+            {"id": "converse", "title": "CONVERSE", "short": "Remember what was said"},
+            {"id": "book", "title": "BOOK / HANDOFF", "short": "Turn cold business into real conversation"},
+            {"id": "learn", "title": "LEARN", "short": "Every outcome → better targeting"},
+        ],
+        "brains": [
+            {"id": "leads", "title": "GTM Leads — Who should Orbit pursue?", "flow": "FIND → UNDERSTAND → QUALIFY"},
+            {"id": "intent", "title": "GTM Intent — What is happening?", "flow": "OBSERVE → INTERPRET → DETECT"},
+        ],
+        "principles": [
+            "Evidence before action",
+            "Context before messaging",
+            "Qualification before escalation",
+            "Intent before response",
+            "Behavior changes the path",
+            "Every action has outcome",
+            "Humans where judgment matters",
+        ],
+        "simulation": "ABC HVAC — local HVAC, 3 areas, hiring dispatcher, weak booking — full walkthrough available in frontend simulation",
+        "trace": "canonical.ts is frontend source; this endpoint mirrors it for API data-driven verification",
+    }
+
+
+@router.get("/explain/{lead_id}")
+def explain_lead_route(lead_id: str, user: dict = Depends(require_workspace)):
+    from app.services.observability import explain_lead as _explain
+    return _explain(str(user["workspace_id"]), lead_id)

@@ -50,7 +50,8 @@ export default function SignalsDashboard() {
       </div>
 
       <div className="flex items-center gap-3">
-        <select className="select" value={filter} onChange={(e) => setFilter(e.target.value)}>
+        <select className="select" value={filter} onChange={(e) => setFilter(e.target.value)}
+                aria-label="Filter by category">
           <option value="">All categories</option>
           {categories.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>

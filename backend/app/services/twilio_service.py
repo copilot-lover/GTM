@@ -1,16 +1,13 @@
 """Dialer: Twilio Voice via REST + WebRTC access tokens.
 Application-owned call state in Postgres; webhooks idempotent by CallSid."""
 
-import base64
 import os
 import time
-from urllib.parse import urlencode
 
 import httpx
 import jwt as pyjwt
 
 import app.db as db
-from app.config import get_settings
 
 
 class TwilioError(Exception):

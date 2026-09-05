@@ -1,12 +1,25 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 
+interface LeadItem {
+  id: string;
+  business_name: string;
+  vertical: string | null;
+  city: string | null;
+  state: string | null;
+  lead_score: number | null;
+  priority_tier: string | null;
+  status: string;
+  primary_pain: string | null;
+  recommended_offer: string | null;
+}
+
 const STATUSES = ["new","enriching","qualified","signal_holding","outreach_ready","contacted",
   "responded","qualified_conversation","meeting_booked","meeting_held","proposal","won",
   "lost","rejected","do_not_call","unreachable","archived"];
 
 export default function Leads() {
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<LeadItem[]>([]);
   const [total, setTotal] = useState(0);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
@@ -34,9 +47,11 @@ export default function Leads() {
           placeholder="Search businesses…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          aria-label="Search leads"
         />
         <select className="select" value={status}
-                onChange={(e) => setStatus(e.target.value)}>
+                onChange={(e) => setStatus(e.target.value)}
+                aria-label="Filter by status">
           <option value="">All statuses</option>
           {STATUSES.map((s) => <option key={s}>{s}</option>)}
         </select>

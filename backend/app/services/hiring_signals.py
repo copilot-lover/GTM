@@ -14,7 +14,6 @@ from typing import Any
 import psycopg.rows
 
 import app.db as db
-from app.config import get_settings
 from app.providers import ProviderUnavailable, get
 from app.providers.base import LLMProvider, LLMResponse
 from app.services.flags import get_flag

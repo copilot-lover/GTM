@@ -9,7 +9,6 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any
 
 import psycopg.rows
 
@@ -17,7 +16,6 @@ import app.db as db
 from app.providers import ProviderUnavailable, get
 from app.providers.base import LLMProvider, LLMResponse
 from app.services import scraping
-from app.services.flags import get_flag
 
 log = logging.getLogger(__name__)
 

@@ -1,5 +1,7 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from psycopg.rows import dict_row
 
 import app.db as db
@@ -29,14 +31,15 @@ def approval_queue(user: dict = Depends(require_workspace)):
 
 class ApproveIn(BaseModel):
     message_ids: list[str]
-    action: str  # approve | reject
+    action: Literal["approve", "reject"]
     reason: str | None = None
 
 
 @router.post("/approvals")
 def bulk_approve(req: ApproveIn, user: dict = Depends(require_workspace)):
     results = []
-    for mid in req.message_ids[:100]:
+    # NOTE: N+1 — each approve/reject opens a connection. Batch optimization deferred.
+    for mid in req.message_ids[:50]:
         try:
             if req.action == "approve":
                 email_service.approve(user["workspace_id"], mid, str(user["id"]))
@@ -124,7 +127,7 @@ def why(message_id: str, user: dict = Depends(require_workspace)):
 
 class ReviewReplyIn(BaseModel):
     lead_id: str
-    text: str
+    text: str = Field(max_length=5000)
 
 
 @router.post("/classify-reply")

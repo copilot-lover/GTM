@@ -1,0 +1,36 @@
+{
+  "file": "n8n/workflows/email-transport.json",
+  "checks": [
+    {
+      "name": "duplicate Authorization fixed \u2192 single Bearer ORBIT_SERVICE_TOKEN",
+      "ok": true,
+      "detail": "all internal nodes single Bearer ORBIT_SERVICE_TOKEN, openrouter none here"
+    },
+    {
+      "name": "Every external POST retryOnFail:true maxTries:3 wait 5000-10000",
+      "ok": true,
+      "detail": "every POST has retryOnFail 3/5000-10000"
+    },
+    {
+      "name": "Send Email error branch report_fail:97 ok:false",
+      "ok": true,
+      "detail": "report_fail exists reports ok:false and smtp branches to it"
+    },
+    {
+      "name": "claim onError:continueRegularOutput",
+      "ok": true,
+      "detail": "claim has onError:continueRegularOutput at node level"
+    },
+    {
+      "name": "scheduleTrigger cadence preserved",
+      "ok": true,
+      "detail": "scheduleTrigger 15min preserved"
+    },
+    {
+      "name": "API gates claim->SMTP->report preserved",
+      "ok": true,
+      "detail": "claim -> SMTP -> report ok/false preserved"
+    }
+  ],
+  "passed": true
+}

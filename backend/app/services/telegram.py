@@ -5,7 +5,6 @@ and event-driven notification dispatch.
 """
 
 import logging
-from datetime import datetime, timezone
 
 import httpx
 import psycopg.rows

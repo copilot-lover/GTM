@@ -1,8 +1,5 @@
 """Opportunity Router — WS-D: API endpoints for scoring, research, and email QC."""
 
-import json
-from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from psycopg.rows import dict_row

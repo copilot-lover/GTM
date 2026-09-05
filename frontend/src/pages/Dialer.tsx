@@ -2,6 +2,25 @@ import { useEffect, useRef, useState } from "react";
 import { Device } from "@twilio/voice-sdk";
 import { api } from "../api";
 
+interface DialerQueueItem {
+  lead_id: string;
+  business_name: string;
+  phone: string;
+  priority_score: number;
+  last_disposition: string;
+}
+
+interface DialerSession {
+  id: string;
+  name: string;
+  queue_size: number;
+}
+
+interface DialerKpis {
+  calls_today: number;
+  connection_rate_today: number;
+}
+
 const DISPOSITIONS = [
   "connected_dm", "connected_gk", "connected_other", "voicemail", "busy",
   "no_answer", "bad_number", "not_interested", "do_not_call",
@@ -9,12 +28,12 @@ const DISPOSITIONS = [
 ];
 
 export default function Dialer() {
-  const [queue, setQueue] = useState<any[]>([]);
-  const [sessions, setSessions] = useState<any[]>([]);
+  const [queue, setQueue] = useState<DialerQueueItem[]>([]);
+  const [sessions, setSessions] = useState<DialerSession[]>([]);
   const [sessionId, setSessionId] = useState<string>("");
   const [callState, setCallState] = useState<"idle" | "connecting" | "live">("idle");
-  const [kpis, setKpis] = useState<any>(null);
-  const [activeLead, setActiveLead] = useState<any>(null);
+  const [kpis, setKpis] = useState<DialerKpis | null>(null);
+  const [activeLead, setActiveLead] = useState<DialerQueueItem | null>(null);
   const [activeCallId, setActiveCallId] = useState<string>("");
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [activeCallObj, setActiveCallObj] = useState<any>(null);
@@ -22,14 +41,18 @@ export default function Dialer() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api("/dialer/sessions").then((d) => setSessions(d.items)).catch(() => {});
-    api("/dialer/kpis").then(setKpis).catch(() => {});
+    api("/dialer/sessions").then((d) => setSessions(d?.items ?? [])).catch(() => setSessions([]));
+    api("/dialer/kpis").then(setKpis).catch(() => setKpis(null));
   }, []);
 
   async function openSession(id: string) {
     setSessionId(id);
-    const d = await api(`/dialer/sessions/${id}/queue`);
-    setQueue(d.items);
+    try {
+      const d = await api(`/dialer/sessions/${id}/queue`);
+      setQueue(d?.items ?? []);
+    } catch {
+      setQueue([]);
+    }
   }
 
   async function connectBrowser() {
@@ -74,7 +97,7 @@ export default function Dialer() {
     if (activeCallObj) await activeCallObj.sendDigits(d);
   }
 
-  async function call(lead: any) {
+  async function call(lead: DialerQueueItem) {
     if (!deviceRef.current) {
       setError("connect your browser audio first");
       return;
@@ -149,6 +172,7 @@ export default function Dialer() {
           value={sessionId}
           onChange={(e) => openSession(e.target.value)}
           className="select"
+          aria-label="Select session"
         >
           <option value="">— choose session —</option>
           {sessions.map((s) => (
@@ -168,6 +192,7 @@ export default function Dialer() {
             defaultValue=""
             onChange={(e) => pickMic(e.target.value)}
             className="select" style={{ maxWidth: 220 }}
+            aria-label="Select microphone"
           >
             <option value="">mic: default</option>
             {mics.map((m, i) => (

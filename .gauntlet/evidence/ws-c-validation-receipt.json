@@ -1,0 +1,92 @@
+{
+  "generated_at": "2026-08-31T04:36:56.293485Z",
+  "tool": "ws-c-validation",
+  "version": "1.0",
+  "workflows": [
+    {
+      "file": "n8n/workflows/email-transport.json",
+      "checks": [
+        {
+          "name": "duplicate Authorization fixed \u2192 single Bearer ORBIT_SERVICE_TOKEN",
+          "ok": true,
+          "detail": "all internal nodes single Bearer ORBIT_SERVICE_TOKEN, openrouter none here"
+        },
+        {
+          "name": "Every external POST retryOnFail:true maxTries:3 wait 5000-10000",
+          "ok": true,
+          "detail": "every POST has retryOnFail 3/5000-10000"
+        },
+        {
+          "name": "Send Email error branch report_fail:97 ok:false",
+          "ok": true,
+          "detail": "report_fail exists reports ok:false and smtp branches to it"
+        },
+        {
+          "name": "claim onError:continueRegularOutput",
+          "ok": true,
+          "detail": "claim has onError:continueRegularOutput at node level"
+        },
+        {
+          "name": "scheduleTrigger cadence preserved",
+          "ok": true,
+          "detail": "scheduleTrigger 15min preserved"
+        },
+        {
+          "name": "API gates claim->SMTP->report preserved",
+          "ok": true,
+          "detail": "claim -> SMTP -> report ok/false preserved"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "file": "n8n/workflows/dialer-dispatch.json",
+      "checks": [
+        {
+          "name": "single Authorization Bearer ORBIT_SERVICE_TOKEN",
+          "ok": true,
+          "detail": "all internal auth single Bearer"
+        },
+        {
+          "name": "POST retryOnFail 3/5000-10000",
+          "ok": true,
+          "detail": "POST retry ok"
+        },
+        {
+          "name": "dialer session idempotency/salted date key or GET check",
+          "ok": true,
+          "detail": "idempotency via body+header salted date"
+        },
+        {
+          "name": "scheduleTrigger 8AM preserved",
+          "ok": true,
+          "detail": "scheduleTrigger 8AM preserved"
+        },
+        {
+          "name": "onError continueRegularOutput preserved",
+          "ok": true,
+          "detail": "onError continueRegularOutput preserved where present"
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "structural": {
+    "email-transport.json": {
+      "ok": true,
+      "detail": "valid n8n workflow JSON structure"
+    },
+    "dialer-dispatch.json": {
+      "ok": true,
+      "detail": "valid n8n workflow JSON structure"
+    }
+  },
+  "overall_pass": true,
+  "quality_bar": {
+    "email-transport.json:20 duplicate Authorization fixed": true,
+    "every POST retryOnFail 3/5000-10000": true,
+    "Send Email error branch report_fail ok:false": true,
+    "claim onError continueRegularOutput": true,
+    "dialer session idempotency salted date": true
+  }
+}

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from psycopg.rows import dict_row
 
 import app.db as db
@@ -46,17 +46,17 @@ class SignalOut(BaseModel):
 
 
 class PostingIn(BaseModel):
-    source: str
-    source_url: str
-    external_job_id: str
-    title: str
-    description_raw: str | None = None
-    location: str | None = None
+    source: str = Field(max_length=100)
+    source_url: str = Field(max_length=2000)
+    external_job_id: str = Field(max_length=200)
+    title: str = Field(max_length=500)
+    description_raw: str | None = Field(default=None, max_length=50000)
+    location: str | None = Field(default=None, max_length=200)
     posted_at: datetime | None = None
-    company_name: str | None = None
-    company_website: str | None = None
-    company_phone: str | None = None
-    contact_email: str | None = None
+    company_name: str | None = Field(default=None, max_length=300)
+    company_website: str | None = Field(default=None, max_length=2000)
+    company_phone: str | None = Field(default=None, max_length=20)
+    contact_email: str | None = Field(default=None, max_length=320)
 
 
 def classify_role(title: str) -> tuple[str | None, dict]:
@@ -405,7 +405,8 @@ def list_signals(
             where.append("hs.signal_score >= %s")
             params.append(min_score)
         if max_age_days is not None:
-            where.append("hs.posted_at >= now() - interval '%s days'" % max_age_days)
+            where.append("hs.posted_at >= now() - make_interval(days => %s)")
+            params.append(int(max_age_days))
         if company_id:
             where.append("hs.company_id = %s")
             params.append(company_id)

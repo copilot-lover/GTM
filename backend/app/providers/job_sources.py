@@ -4,11 +4,8 @@ Each adapter wraps an external job API with retry, circuit breaker, and fixture 
 
 import logging
 import os
-from typing import Any
-
 import httpx
 
-from app.providers import ProviderUnavailable
 from app.providers.base import JobSourceProvider, registry
 from app.providers.fixtures import FixtureJobSource
 from app.providers.resilience import CircuitBreaker, retry_with_backoff_sync

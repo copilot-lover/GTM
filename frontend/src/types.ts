@@ -17,12 +17,14 @@ export interface PipelineStage {
 }
 
 export interface ControlPlaneOverview {
-  systems: Record<string, SystemHealthComponent>;
-  today: TodayStats;
-  pipeline: PipelineStage[];
-  actions: {
-    paused: boolean;
-  };
+  domains: Record<string, number>;
+  mailboxes: Record<string, number>;
+  providers: { provider: string; quota: number; used: number }[];
+  n8n: string;
+  database: string;
+  capacity: { sent_today: number; today_limit: number; queued: number; followups_due: number };
+  health_score: number;
+  paused: boolean;
 }
 
 export interface LeadQueueItem {

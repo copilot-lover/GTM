@@ -51,8 +51,21 @@ class TestApprovalGate:
             email_service.claim_for_send(ws, msg)
         assert "not approved" in str(exc.value)
 
-    def test_rejected_message_cannot_send(self, approved_draft):
-        pass  # covered by gate logic; approval flow tested below
+    def test_rejected_message_cannot_send(self, db_url, workspace):
+        ws, _ = workspace
+        lead = make_lead(db_url, ws)
+        conn = psycopg.connect(db_url, autocommit=True)
+        msg = str(conn.execute(
+            """INSERT INTO messages (workspace_id, lead_id, channel, direction,
+                   subject, body_text, status)
+               VALUES (%s,%s,'email','outbound','s','b','rejected')
+               RETURNING id""",
+            (ws, lead),
+        ).fetchone()[0])
+        conn.close()
+        with pytest.raises(email_service.SendBlocked) as exc:
+            email_service.claim_for_send(ws, msg)
+        assert "not approved" in str(exc.value)
 
     def test_approval_records_approver(self, db_url, workspace):
         ws, user = workspace

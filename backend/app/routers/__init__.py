@@ -1,5 +1,4 @@
 from app.routers import (
-    auth,
     companies,
     control_plane,
     dashboard,
@@ -14,12 +13,12 @@ from app.routers import (
     pipeline_ops,
     scheduler,
     scrape,
+    settings,
     telegram,
 )
 
 routes = [
     health.router,
-    auth.router,
     companies.router,
     leads.router,
     pipeline_ops.router,
@@ -33,5 +32,6 @@ routes = [
     opportunity.router,
     scheduler.router,
     control_plane.router,
+    settings.router,
     telegram.router,
 ]

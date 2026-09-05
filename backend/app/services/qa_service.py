@@ -216,7 +216,7 @@ def run_copy_qa(workspace_id: str, message_id: str, actor: str = "GTM_QA") -> di
     word_count = len(body.split())
     if word_count >= 75:
         findings.append(_finding(
-            "GENERIC_COPY", "warning",
+            "GENERIC_COPY", "critical",
             f"draft exceeds 75 words ({word_count})"))
     sentences = re.split(r"[.!?]+(?:\s|$)", body)
     n_sentences = len([s for s in sentences if s.strip()])

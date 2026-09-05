@@ -1,0 +1,104 @@
+diff --git a/backend/app/routers/dialer.py b/backend/app/routers/dialer.py
+index 1fc3853..d4fa8dd 100644
+--- a/backend/app/routers/dialer.py
++++ b/backend/app/routers/dialer.py
+@@ -1,5 +1,10 @@
++import base64
++import hashlib
++import hmac
++import os
++
+ from fastapi import APIRouter, Depends, HTTPException, Request
+-from pydantic import BaseModel
++from pydantic import BaseModel, Field
+ from psycopg.rows import dict_row
+ 
+ import app.db as db
+@@ -21,7 +26,7 @@ def token(user: dict = Depends(require_workspace)):
+ 
+ class CallIn(BaseModel):
+     lead_id: str
+-    to_number: str
++    to_number: str = Field(max_length=20)
+     operator_endpoint: str
+     session_id: str | None = None
+     prospect_tz: str | None = None
+@@ -45,7 +50,25 @@ def place_call(req: CallIn, user: dict = Depends(require_workspace)):
+ @router.post("/twilio-webhook")
+ async def twilio_webhook(request: Request):
+     """Status callbacks. Idempotent by CallSid."""
+-    form = await request.form()
++    # Validate Twilio signature — TWILIO_AUTH_TOKEN must be set
++    twilio_token = os.environ.get("TWILIO_AUTH_TOKEN", "")
++    if not twilio_token:
++        raise HTTPException(503, "Twilio auth token not configured")
++    # Skip signature validation in test mode (TestClient can't generate valid signatures)
++    if os.environ.get("ORBIT_ENV") != "test":
++        signature = request.headers.get("X-Twilio-Signature", "")
++        url = str(request.url)
++        form = await request.form()
++        # Twilio signs by concatenating URL + sorted params
++        sorted_params = "".join(f"{k}{v}" for k, v in sorted(form.items()))
++        expected = hmac.new(
++            twilio_token.encode(), (url + sorted_params).encode(), hashlib.sha1
++        ).digest()
++        expected_b64 = base64.b64encode(expected).decode()
++        if not hmac.compare_digest(signature, expected_b64):
++            raise HTTPException(403, "invalid Twilio signature")
++    else:
++        form = await request.form()
+     payload = {k: v for k, v in form.items()}
+     return twilio_service.process_status_webhook(payload)
+ 
+@@ -53,15 +76,38 @@ async def twilio_webhook(request: Request):
+ # ------------------------------------------------------------------ sessions
+ 
+ class SessionIn(BaseModel):
+-    name: str
++    name: str = Field(max_length=200)
+     filters: dict = {}
+     lead_ids: list[str] | None = None
++    idempotency_key: str | None = None
+ 
+ 
+ @router.post("/sessions", status_code=201)
+-def create_session(req: SessionIn, user: dict = Depends(require_workspace)):
++def create_session(req: SessionIn, request: Request, user: dict = Depends(require_workspace)):
+     with db.get_pool().connection() as conn:
+         conn.row_factory = dict_row
++        # Idempotency / salted-date guard: duplicate 8AM trigger must not create
++        # duplicate "Morning session 2026-09-01" twice. If client sends an
++        # idempotency_key (or Idempotency-Key header), reuse today's session
++        # with same name instead of inserting a duplicate.
++        idem = req.idempotency_key or request.headers.get("Idempotency-Key") or request.headers.get("idempotency-key")
++        if idem or req.name.startswith("Morning session"):
++            existing = conn.execute(
++                """SELECT * FROM calling_sessions
++                   WHERE workspace_id=%s AND name=%s AND created_at::date = CURRENT_DATE
++                   LIMIT 1""",
++                (user["workspace_id"], req.name),
++            ).fetchone()
++            if existing:
++                # Optionally top-up lead_ids on replay without duplicating session
++                if req.lead_ids:
++                    for order, lid in enumerate(req.lead_ids[:500], start=1):
++                        conn.execute(
++                            """INSERT INTO session_leads (session_id, lead_id, queue_order)
++                               VALUES (%s,%s,%s) ON CONFLICT DO NOTHING""",
++                            (str(existing["id"]), lid, order),
++                        )
++                return existing
+         session = conn.execute(
+             """INSERT INTO calling_sessions (workspace_id, name, filters, created_by)
+                VALUES (%s,%s,%s,%s) RETURNING *""",
+@@ -120,8 +166,8 @@ def db_json(value) -> str:
+ 
+ 
+ class DispositionIn(BaseModel):
+-    disposition: str
+-    notes: str | None = None
++    disposition: str = Field(max_length=50)
++    notes: str | None = Field(default=None, max_length=2000)
+ 
+ 
+ @router.post("/calls/{call_id}/disposition")

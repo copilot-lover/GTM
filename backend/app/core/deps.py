@@ -1,11 +1,60 @@
-from fastapi import Depends, HTTPException, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import HTTPException, Request
 from psycopg.rows import dict_row
 
 import app.db as db
-from app.core.security import decode_token
 
-bearer = HTTPBearer(auto_error=False)
+# Single-user, no-auth mode: one implicit identity, auto-provisioned.
+_SINGL_USER_CACHE: dict | None = None
+
+
+def _bootstrap_solo() -> dict:
+    """Ensure the default workspace + user exist; return the identity."""
+    global _SINGL_USER_CACHE
+    if _SINGL_USER_CACHE:
+        return _SINGL_USER_CACHE
+    with db.get_pool().connection() as conn:
+        conn.row_factory = dict_row
+        ws = conn.execute(
+            "SELECT id, name FROM workspaces WHERE name = 'Orbit' ORDER BY id LIMIT 1"
+        ).fetchone()
+        if ws is None:
+            ws = conn.execute(
+                """INSERT INTO workspaces (name, onboarding_completed, onboarding_step)
+                   VALUES ('Orbit', true, 'complete')
+                   RETURNING id, name"""
+            ).fetchone()
+        user = conn.execute(
+            """INSERT INTO users (email, password_hash, display_name)
+               VALUES ('solo@orbit.local', '', 'Owner')
+               ON CONFLICT (email) DO NOTHING
+               RETURNING id, email, display_name"""
+        ).fetchone()
+        if user is None:
+            user = conn.execute(
+                "SELECT id, email, display_name FROM users WHERE email = 'solo@orbit.local' LIMIT 1"
+            ).fetchone()
+        if ws is None:
+            ws = conn.execute(
+                "SELECT id, name FROM workspaces WHERE name = 'Orbit' LIMIT 1"
+            ).fetchone()
+        if user is None:
+            user = conn.execute(
+                "SELECT id, email, display_name FROM users WHERE email = 'solo@orbit.local' LIMIT 1"
+            ).fetchone()
+        conn.execute(
+            """INSERT INTO workspace_members (workspace_id, user_id, role)
+               SELECT %s,%s,'owner'
+               WHERE NOT EXISTS (
+                 SELECT 1 FROM workspace_members
+                 WHERE workspace_id = %s AND user_id = %s)""",
+            (ws["id"], user["id"], ws["id"], user["id"]),
+        )
+    _SINGL_USER_CACHE = {
+        **user,
+        "workspace_id": ws["id"],
+        "role": "owner",
+    }
+    return _SINGL_USER_CACHE
 
 
 def fetch_one(query: str, params: tuple) -> dict | None:
@@ -14,37 +63,12 @@ def fetch_one(query: str, params: tuple) -> dict | None:
         return conn.execute(query, params).fetchone()
 
 
-def get_current_user(
-    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
-) -> dict:
-    if creds is None:
-        raise HTTPException(401, "missing token")
-    payload = decode_token(creds.credentials)
-    if payload is None:
-        raise HTTPException(401, "invalid or expired token")
-    user = fetch_one(
-        "SELECT id, email, display_name FROM users WHERE id = %s", (payload["sub"],)
-    )
-    if user is None:
-        raise HTTPException(401, "user not found")
-    member = fetch_one(
-        """SELECT m.workspace_id, m.role FROM workspace_members m
-           WHERE m.user_id = %s AND m.workspace_id = %s""",
-        (str(user["id"]), payload["ws"]),
-    )
-    if member is None:
-        raise HTTPException(403, "not a member of the tokenized workspace")
-    return {
-        **user,
-        "workspace_id": member["workspace_id"],
-        "role": member["role"],
-    }
+def get_current_user() -> dict:
+    return _bootstrap_solo()
 
 
-def require_workspace(user: dict = Depends(get_current_user)) -> dict:
-    if not user.get("workspace_id"):
-        raise HTTPException(403, "no workspace")
-    return user
+def require_workspace() -> dict:
+    return _bootstrap_solo()
 
 
 def audit(

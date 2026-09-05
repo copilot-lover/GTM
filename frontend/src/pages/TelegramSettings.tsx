@@ -1,132 +1,208 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { TelegramSettingsData } from "../types";
+import { PaperPlaneTilt, CheckCircle } from "@phosphor-icons/react";
 
-const NOTIFICATION_TYPES = ["alerts", "meetings", "new_leads", "daily_summary", "errors"];
-const LEVELS = ["info", "warning", "critical"];
+type TgSettings = {
+  bot_token: string | null; // masked from backend
+  chat_id: string | null;
+  enabled: boolean;
+  notify_types: Record<string, boolean>;
+  level: string;
+};
+
+const EVENT_TYPES: { key: string; label: string; desc: string }[] = [
+  { key: "meeting_booked", label: "Meeting booked", desc: "Lead books a meeting" },
+  { key: "positive_reply", label: "Positive reply", desc: "Warm reply lands in a mailbox" },
+  { key: "hot_lead", label: "Hot lead", desc: "Lead crosses your intent threshold" },
+  { key: "alert_critical", label: "Critical alerts", desc: "System breaks, domain down, provider exhausted" },
+  { key: "alert_warning", label: "Warnings", desc: "Degraded systems, quota nearing limits" },
+  { key: "daily_digest", label: "Daily digest", desc: "Morning GTM health summary" },
+];
+
+const LEVELS = [
+  { value: "all", label: "All — every notified event" },
+  { value: "important", label: "Important — meetings, replies, warnings" },
+  { value: "critical", label: "Critical only — failures and booked meetings" },
+];
 
 export default function TelegramSettings() {
-  const [settings, setSettings] = useState<TelegramSettingsData>({
-    bot_token: "",
-    chat_id: "",
-    enabled: false,
-    notification_types: [],
-    level: "info",
-  });
+  const [settings, setSettings] = useState<TgSettings | null>(null);
+  const [tokenValue, setTokenValue] = useState("");
+  const [tokenEdited, setTokenEdited] = useState(false);
+  const [chatId, setChatId] = useState("");
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
+  const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    api<TelegramSettingsData>("/telegram/settings")
-      .then((d) => { setSettings(d); setLoaded(true); })
-      .catch(() => setLoaded(true));
+    api<TgSettings>("/telegram/settings")
+      .then((d) => {
+        setSettings(d);
+        setChatId(d.chat_id ?? "");
+        setTokenValue(""); // masked token not editable; blank = keep existing
+        setLoaded(true);
+      })
+      .catch((e) => { setError(e.message); setLoaded(true); });
   }, []);
 
   async function save() {
+    setSaving(true);
     try {
-      await api("/telegram/settings", { method: "POST", body: JSON.stringify(settings) });
-      setMsg("Settings saved");
+      const body: Record<string, unknown> = {
+        chat_id: chatId || null,
+        enabled: settings?.enabled ?? false,
+        notify_types: settings?.notify_types ?? {},
+        level: settings?.level ?? "important",
+      };
+      if (tokenEdited && tokenValue.trim()) body.bot_token = tokenValue.trim();
+      await api("/telegram/settings", { method: "POST", body: JSON.stringify(body) });
+      setMsg("Saved");
       setError("");
+      setTokenEdited(false);
+      const d = await api<TgSettings>("/telegram/settings");
+      setSettings(d);
     } catch (e: any) { setError(e.message); }
+    setSaving(false);
   }
 
   async function testConnection() {
     setTesting(true);
     try {
       await api("/telegram/test", { method: "POST" });
-      setMsg("Test message sent");
+      setMsg("Test message sent — check your chat");
       setError("");
     } catch (e: any) { setError(e.message); }
     setTesting(false);
   }
 
-  function toggleType(t: string) {
-    setSettings((s) => ({
-      ...s,
-      notification_types: s.notification_types.includes(t)
-        ? s.notification_types.filter((x) => x !== t)
-        : [...s.notification_types, t],
-    }));
-  }
+  if (!loaded) return <div className="w-full max-w-3xl mx-auto text-sm" style={{ color: "var(--ink-3)" }}>loading…</div>;
 
-  if (!loaded) return <div className="w-full max-w-7xl mx-auto text-slate-400">loading…</div>;
+  const hasToken = !!settings?.bot_token;
+  const enabled = settings?.enabled ?? false;
 
   return (
-    <div className="w-full max-w-3xl mx-auto space-y-4">
-      <div className="flex flex-wrap gap-3 items-center">
-        <h1 className="text-xl font-semibold text-slate-900">Telegram Settings</h1>
+    <div className="w-full max-w-3xl mx-auto space-y-5">
+      <div>
+        <h1 className="text-2xl font-semibold" style={{ color: "var(--ink)" }}>Telegram</h1>
+        <p className="text-sm mt-1" style={{ color: "var(--ink-3)" }}>
+          Push notifications when something needs you — booked meetings, hot leads, system failures.
+        </p>
       </div>
 
-      {error && <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">{error}</div>}
-      {msg && <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-2.5 text-sm text-emerald-700">{msg}</div>}
+      {error && <div className="card px-4 py-2.5 text-sm" style={{ color: "#9f2f2d", borderColor: "#f5d5d4", background: "#fdf6f6" }}>{error}</div>}
+      {msg && <div className="card px-4 py-2.5 text-sm" style={{ color: "#346538", borderColor: "#d9e4d8", background: "#f7faf7" }}>{msg}</div>}
+
+      <div className="card px-5 py-4 flex items-center gap-4">
+        <div className="flex-1">
+          <div className="text-sm font-medium" style={{ color: "var(--ink)" }}>Notifications enabled</div>
+          <div className="text-xs mt-0.5" style={{ color: "var(--ink-3)" }}>
+            Master switch — nothing is sent while off
+          </div>
+        </div>
+        <button
+          aria-label="Toggle notifications"
+          className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${enabled ? "bg-[#346538]" : "bg-[#d6d5d0]"}`}
+          onClick={() => setSettings((s) => s ? { ...s, enabled: !s.enabled } : s)}
+        >
+          <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${enabled ? "left-5" : "left-0.5"}`} />
+        </button>
+      </div>
 
       <div className="panel space-y-5">
-        <div>
-          <label className="panel-title">Bot Token</label>
-          <input
-            className="input w-full mt-1"
-            type="password"
-            placeholder="123456:ABC-..."
-            value={settings.bot_token}
-            onChange={(e) => setSettings((s) => ({ ...s, bot_token: e.target.value }))}
-          />
-        </div>
-
-        <div>
-          <label className="panel-title">Chat ID</label>
-          <input
-            className="input w-full mt-1"
-            placeholder="-1001234567890"
-            value={settings.chat_id}
-            onChange={(e) => setSettings((s) => ({ ...s, chat_id: e.target.value }))}
-          />
-        </div>
-
-        <div className="flex items-center gap-3">
-          <label className="panel-title mb-0">Enabled</label>
-          <button
-            className={`w-10 h-5 rounded-full transition-colors relative ${settings.enabled ? "bg-emerald-500" : "bg-slate-300"}`}
-            onClick={() => setSettings((s) => ({ ...s, enabled: !s.enabled }))}
-          >
-            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${settings.enabled ? "left-5" : "left-0.5"}`} />
-          </button>
-        </div>
-
-        <div>
-          <label className="panel-title">Notification Types</label>
-          <div className="flex flex-wrap gap-2 mt-1">
-            {NOTIFICATION_TYPES.map((t) => (
-              <button
-                key={t}
-                onClick={() => toggleType(t)}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${settings.notification_types.includes(t) ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-              >
-                {t}
-              </button>
-            ))}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="panel-title mb-1">Bot token</label>
+            <input
+              className="input w-full"
+              type="password"
+              placeholder={hasToken ? "saved — enter new to replace" : "123456:ABC-..."}
+              value={tokenValue}
+              onChange={(e) => { setTokenValue(e.target.value); setTokenEdited(true); }}
+            />
+            {hasToken && (
+              <p className="text-xs mt-1.5" style={{ color: "var(--ink-3)" }}>
+                Current: <span className="mono">{settings.bot_token}</span>
+              </p>
+            )}
+          </div>
+          <div>
+            <label className="panel-title mb-1">Chat ID</label>
+            <input
+              className="input w-full mono"
+              placeholder="-1001234567890"
+              value={chatId}
+              onChange={(e) => setChatId(e.target.value)}
+            />
+            <p className="text-xs mt-1.5" style={{ color: "var(--ink-3)" }}>
+              Message @userinfobot on Telegram to get your chat ID
+            </p>
           </div>
         </div>
 
         <div>
-          <label className="panel-title">Level</label>
+          <label className="panel-title mb-1">Minimum level</label>
           <select
-            className="select mt-1"
-            value={settings.level}
-            onChange={(e) => setSettings((s) => ({ ...s, level: e.target.value }))}
+            className="select w-full sm:w-96"
+            value={settings?.level ?? "important"}
+            onChange={(e) => setSettings((s) => s ? { ...s, level: e.target.value } : s)}
           >
-            {LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
+            {LEVELS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
           </select>
         </div>
+      </div>
 
-        <div className="flex gap-2 pt-2">
-          <button className="btn" onClick={save}>Save Settings</button>
-          <button className="btn btn-ghost" onClick={testConnection} disabled={testing}>
-            {testing ? "Sending…" : "⚡ Test Connection"}
-          </button>
+      <div className="panel">
+        <div className="panel-title">What to notify on</div>
+        <div className="divide-y" style={{ borderColor: "#f2f2f0" }}>
+          {EVENT_TYPES.map((t) => {
+            const on = settings?.notify_types?.[t.key] ?? false;
+            return (
+              <label
+                key={t.key}
+                className="flex items-center gap-3 py-3 cursor-pointer"
+              >
+                <span
+                  className="w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors"
+                  style={on
+                    ? { background: "var(--ink)", borderColor: "var(--ink)" }
+                    : { background: "#fff", borderColor: "#c9c7c0" }}
+                >
+                  {on && <CheckCircle size={12} weight="fill" color="#fff" />}
+                </span>
+                <input
+                  type="checkbox"
+                  className="sr-only"
+                  checked={on}
+                  onChange={() =>
+                    setSettings((s) =>
+                      s ? { ...s, notify_types: { ...s.notify_types, [t.key]: !on } } : s)
+                  }
+                />
+                <span>
+                  <span className="block text-sm font-medium" style={{ color: "var(--ink)" }}>{t.label}</span>
+                  <span className="block text-xs" style={{ color: "var(--ink-3)" }}>{t.desc}</span>
+                </span>
+              </label>
+            );
+          })}
         </div>
       </div>
+
+      <div className="flex gap-2">
+        <button className="btn" onClick={save} disabled={saving}>
+          <PaperPlaneTilt size={14} weight="bold" /> {saving ? "Saving…" : "Save"}
+        </button>
+        <button className="btn btn-ghost" onClick={testConnection} disabled={testing || !hasToken}>
+          {testing ? "Sending…" : "Send test message"}
+        </button>
+      </div>
+      {!hasToken && (
+        <p className="text-xs" style={{ color: "var(--ink-3)" }}>
+          Save a bot token to enable the test message.
+        </p>
+      )}
     </div>
   );
 }

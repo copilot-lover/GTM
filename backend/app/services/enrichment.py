@@ -10,12 +10,10 @@ import json
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Any
 
 import psycopg.rows
 
 import app.db as db
-from app.config import get_settings
 from app.providers import registry, ProviderUnavailable
 from app.providers.base import VerificationResult
 from app.services import flags

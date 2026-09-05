@@ -6,7 +6,7 @@ pause/resume, and system-map endpoints live here.
 
 import json
 import logging
-from datetime import date as date_type, datetime, timezone
+from datetime import date as date_type, timezone
 
 import httpx
 import psycopg.rows
@@ -14,7 +14,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 import app.db as db
-from app.config import get_settings
 from app.core.deps import require_workspace
 from app.services import flags, scheduler
 from app.services.mailbox_health import DAILY_GTM_HEALTH_AUDIT
@@ -129,6 +128,7 @@ def overview(user: dict = Depends(require_workspace)):
         "database": db_health,
         "capacity": {"sent_today": sent_today, "today_limit": today_limit, "queued": queued, "followups_due": followups_due},
         "health_score": overall,
+        "paused": bool(flags.get_flag("pause_all_sending")),
     }
 
 
@@ -351,7 +351,7 @@ def campaigns(
               count(*) FILTER (WHERE em.event_type = 'reply') AS replies,
               count(*) FILTER (WHERE em.event_type = 'reply'
                 AND om.kind = 'initial') AS positive_replies,
-              (SELECT count(*) FROM meetings mt WHERE mt.lead_id = om.lead_id) AS meetings,
+              count(DISTINCT mt.id) AS meetings,
               count(*) FILTER (WHERE em.event_type = 'bounce') AS bounce,
               0 AS unsubscribe,
               CASE WHEN count(*) > 0
@@ -363,6 +363,7 @@ def campaigns(
             LEFT JOIN mailboxes m ON m.id = om.assigned_mailbox_id
             LEFT JOIN sending_domains sd ON sd.id = m.domain_id
             LEFT JOIN email_events em ON em.message_id = om.message_id
+            LEFT JOIN meetings mt ON mt.lead_id = om.lead_id
             WHERE om.workspace_id = %s
             GROUP BY {group_col}
             ORDER BY sends DESC""",

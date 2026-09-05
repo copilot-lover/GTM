@@ -17,11 +17,19 @@ class Settings(BaseSettings):
     postgres_user: str = "orbit"
     postgres_password: str = ""
 
-    jwt_secret: str = "dev-only-secret"
+    jwt_secret: str = ""
     jwt_expires_minutes: int = 10080
+
+    # Outbound safety — overnight dry-run enforcement (Phase 11)
+    # When true, email_service.claim_for_send still gates but apply_send_result never hits real SMTP
+    outbound_dry_run: bool = True
+    outbound_allow_real_send: bool = False
 
     scraper_headless: bool = True
     scraper_stealth_mode: bool = True
+
+    # CORS origins (comma-separated for multiple)
+    cors_origins: str = "http://localhost:8100,http://127.0.0.1:8100"
 
     smtp_host: str = ""
     smtp_port: int = 587
@@ -35,13 +43,12 @@ class Settings(BaseSettings):
 
     # --- In-app provider layer ---
     # Ordered LLM fallback chain (first successful model wins).
-    # GTM subagents run on nemotron-3 (free) and fall back to MiMo v2.5.
+    # Verified free 2026-08-31: liquid row is strictest for fallback testing.
     llm_model_chain: str = (
         "nvidia/nemotron-3-super-120b-a12b:free,"
-        "nvidia/nemotron-3-nano-30b-a3b:free,"
-        "xiaomi/mimo-v2.5"
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free,"
+        "z-ai/glm-5.2:free"
     )
-    # OpenRouter key; OPENROUTER_API_KEY is accepted as an alias.
     llm_api_key: str = Field(default="", validation_alias=AliasChoices(
         "LLM_API_KEY", "OPENROUTER_API_KEY"))
 

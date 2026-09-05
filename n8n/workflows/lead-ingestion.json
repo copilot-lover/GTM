@@ -22,7 +22,7 @@
   },
   {
    "parameters": {
-    "jsCode": "// Target geo/vertical for today's batch.\n// Replace with Scrapler/Apify/source-adapter output; shape:\n// [{ business_name, website, phone, city, state, vertical }]\nreturn [{ json: { candidates: [] } }];"
+    "jsCode": "// Hands-off deterministic fixture seed \u2014 never real scrape in this flow.\n// Replace with live adapter output only when ORBIT_LEAD_SOURCE=live is explicitly set.\nconst candidates = [\n  { business_name: \"Queen City HVAC Solutions\", website: \"https://queencityhvac1.test\", phone: \"(336) 555-0101\", city: \"Greensboro\", state: \"NC\", vertical: \"HVAC\" },\n  { business_name: \"Greensboro Comfort Air\", website: \"https://gso-comfortair2.test\", phone: \"(336) 555-0102\", city: \"Greensboro\", state: \"NC\", vertical: \"HVAC\" },\n  { business_name: \"Triad Heating & Cooling Co\", website: \"https://triad-hvac3.test\", phone: \"(336) 555-0103\", city: \"Greensboro\", state: \"NC\", vertical: \"HVAC\" },\n  { business_name: \"Piedmont Climate Control\", website: \"https://piedmontclimate4.test\", phone: \"(336) 555-0104\", city: \"Greensboro\", state: \"NC\", vertical: \"HVAC\" },\n  { business_name: \"Gate City Air Systems\", website: \"https://gatecityair5.test\", phone: \"(336) 555-0105\", city: \"Greensboro\", state: \"NC\", vertical: \"HVAC\" },\n];\n// Loud validation: never run empty silently\nif (!candidates || candidates.length === 0) {\n  throw new Error(\"ALERT: Source candidates fixture empty \u2014 aborting lead ingestion (would run silently)\");\n}\nreturn [{ json: { candidates, candidate_count: candidates.length, source: \"fixture_greensboro_hvac_demo\" } }];"
    },
    "id": "source",
    "name": "Source candidates (adapter)",
@@ -30,6 +30,37 @@
    "typeVersion": 2,
    "position": [
     220,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeVersion": 2
+     },
+     "conditions": [
+      {
+       "leftValue": "={{ $json.candidates.length }}",
+       "operator": {
+        "type": "number",
+        "operation": "larger"
+       },
+       "rightValue": 0
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   },
+   "id": "validate_candidates",
+   "name": "Candidates not empty?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2,
+   "position": [
+    440,
     0
    ]
   },
@@ -43,8 +74,8 @@
    "type": "n8n-nodes-base.splitOut",
    "typeVersion": 1,
    "position": [
-    440,
-    0
+    660,
+    -80
    ]
   },
   {
@@ -70,23 +101,54 @@
    "type": "n8n-nodes-base.httpRequest",
    "typeVersion": 4.2,
    "position": [
-    660,
-    0
+    880,
+    -80
    ],
    "retryOnFail": true,
    "maxTries": 3
   },
   {
    "parameters": {
-    "jsCode": "return { lead_ids: $('Create lead (dedup in API)').all().map(i => i.json.id).filter(Boolean) };"
+    "jsCode": "const ids = $('Create lead (dedup in API)').all().map(i => i.json.id).filter(Boolean);\nreturn [{ json: { lead_ids: ids, collected_count: ids.length } }];"
    },
    "id": "collect",
    "name": "Collect ids",
    "type": "n8n-nodes-base.code",
    "typeVersion": 2,
    "position": [
-    880,
-    0
+    1100,
+    -80
+   ]
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeVersion": 2
+     },
+     "conditions": [
+      {
+       "leftValue": "={{ $json.lead_ids.length }}",
+       "operator": {
+        "type": "number",
+        "operation": "larger"
+       },
+       "rightValue": 0
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   },
+   "id": "validate_leads",
+   "name": "Leads collected?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2,
+   "position": [
+    1320,
+    -80
    ]
   },
   {
@@ -111,8 +173,106 @@
    "type": "n8n-nodes-base.httpRequest",
    "typeVersion": 4.2,
    "position": [
+    1540,
+    -80
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const input = $input.first().json;\nlet reason = \"empty batch\";\nlet candidates = input.candidates;\nlet lead_ids = input.lead_ids;\nlet candidate_count = input.candidate_count ?? (Array.isArray(candidates) ? candidates.length : 0);\nlet collected = input.collected_count ?? (Array.isArray(lead_ids) ? lead_ids.length : 0);\nif (Array.isArray(candidates) && candidates.length === 0) {\n  reason = \"candidates==0 \u2014 source adapter returned empty\";\n} else if (Array.isArray(lead_ids) && lead_ids.length === 0) {\n  reason = \"collected lead_ids==0 \u2014 all creates deduped or failed\";\n} else if (candidate_count === 0) {\n  reason = \"candidates==0\";\n} else if (collected === 0) {\n  reason = \"collected lead_ids==0\";\n}\nlet msg = `\ud83d\udea8 *Lead Ingestion ALERT \u2014 Empty batch*\\n`;\nmsg += `Reason: ${reason}\\n`;\nmsg += `Source: n8n_ingestion (fixture Greensboro NC HVAC demo)\\n`;\nmsg += `Candidates: ${candidate_count ?? 0} | Collected lead_ids: ${collected}\\n`;\nmsg += `Workflow: Orbit - Lead Ingestion (daily 7 AM)\\n`;\nmsg += `Action: Manual review required \u2014 system never runs empty silently.`;\nconsole.log(\"ALERT ingestion empty: \" + msg + \" | reason=\" + reason);\nreturn { telegramMessage: msg, alertReason: reason, candidate_count, collected };"
+   },
+   "id": "format_alert",
+   "name": "Format ingestion alert",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    440,
+    280
+   ]
+  },
+  {
+   "parameters": {
+    "method": "GET",
+    "url": "http://127.0.0.1:8100/api/telegram/settings",
+    "sendHeaders": true,
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "Authorization",
+       "value": "={{$env.ORBIT_SERVICE_TOKEN}}"
+      }
+     ]
+    }
+   },
+   "id": "get_telegram_alert",
+   "name": "Get Telegram settings (alert)",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    660,
+    280
+   ],
+   "onError": "continueRegularOutput"
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "version": 2
+     },
+     "conditions": [
+      {
+       "leftValue": "={{ $json.enabled }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "equals"
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   },
+   "id": "check_enabled_alert",
+   "name": "Telegram enabled? (alert)",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2,
+   "position": [
+    880,
+    280
+   ]
+  },
+  {
+   "parameters": {
+    "method": "POST",
+    "url": "=https://api.telegram.org/bot{{ $json.bot_token }}/sendMessage",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ chat_id: $json.chat_id, text: $('Format ingestion alert').item.json.telegramMessage, parse_mode: 'Markdown' }) }}"
+   },
+   "id": "send_telegram_alert",
+   "name": "Send Telegram alert",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
     1100,
-    0
+    200
+   ],
+   "onError": "continueRegularOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "console.log('ALERT: Telegram not enabled; lead ingestion alert: ' + $('Format ingestion alert').item.json.telegramMessage); return $input.first().json;"
+   },
+   "id": "log_no_telegram_alert",
+   "name": "Log alert (no Telegram)",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1100,
+    360
    ]
   }
  ],
@@ -132,7 +292,25 @@
    "main": [
     [
      {
+      "node": "Candidates not empty?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Candidates not empty?": {
+   "main": [
+    [
+     {
       "node": "Split candidates",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Format ingestion alert",
       "type": "main",
       "index": 0
      }
@@ -165,7 +343,65 @@
    "main": [
     [
      {
+      "node": "Leads collected?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Leads collected?": {
+   "main": [
+    [
+     {
       "node": "Emit qualification events",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Format ingestion alert",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Format ingestion alert": {
+   "main": [
+    [
+     {
+      "node": "Get Telegram settings (alert)",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Get Telegram settings (alert)": {
+   "main": [
+    [
+     {
+      "node": "Telegram enabled? (alert)",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Telegram enabled? (alert)": {
+   "main": [
+    [
+     {
+      "node": "Send Telegram alert",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Log alert (no Telegram)",
       "type": "main",
       "index": 0
      }
@@ -177,6 +413,6 @@
   "executionOrder": "v1"
  },
  "meta": {
-  "description": "Lead ingestion: source adapter output -> API dedupe -> qualification events -> Lead Intelligence Chain takes over."
+  "description": "Lead ingestion: source adapter output -> API dedupe -> qualification events -> Lead Intelligence Chain takes over. Deterministic Greensboro NC HVAC fixture (5) with loud empty-batch alert via Telegram/console (mirrors daily-gtm-health-audit Telegram enabled check with onError:continueRegularOutput). Hands-off: never real scrape in this flow."
  }
 }

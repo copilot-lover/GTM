@@ -3,8 +3,6 @@ The backend NEVER performs long-running external work inline (spec §10.3)."""
 
 import json
 
-import psycopg
-
 
 def emit(conn, *, event_type: str, payload: dict,
          workspace_id: str | None = None) -> str:

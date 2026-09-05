@@ -6,7 +6,7 @@ volume_consistency 10, recent_failures 5.  States map: >=90 healthy,
 """
 
 import statistics
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import psycopg.rows
 
@@ -19,7 +19,7 @@ import app.db as db
 
 def compute_health_score(mailbox_id: str) -> int:
     """Return 0-100 composite health score for a mailbox."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     last_30 = now - timedelta(days=30)
     last_7 = now - timedelta(days=7)
 

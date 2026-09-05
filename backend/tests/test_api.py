@@ -134,10 +134,16 @@ class TestWebhooksIdempotent:
             (ws, lead),
         ).fetchone()[0])
         conn.close()
-        payload = {"CallSid": "SMTW1", "CallDuration": "42"}
-        for _ in range(3):  # duplicate webhook deliveries
-            resp = client.post("/api/dialer/twilio-webhook", data=payload)
-            assert resp.status_code == 200
+        # Set env vars so the webhook endpoint doesn't 503 and skips HMAC validation
+        os.environ["TWILIO_AUTH_TOKEN"] = "test-token"
+        os.environ["ORBIT_ENV"] = "test"
+        try:
+            payload = {"CallSid": "SMTW1", "CallDuration": "42"}
+            for _ in range(3):  # duplicate webhook deliveries
+                resp = client.post("/api/dialer/twilio-webhook", data=payload)
+                assert resp.status_code == 200
+        finally:
+            os.environ.pop("TWILIO_AUTH_TOKEN", None)
         conn = psycopg.connect(db_url, autocommit=True)
         duration = conn.execute(
             "SELECT duration_seconds FROM calls WHERE id=%s", (call,)

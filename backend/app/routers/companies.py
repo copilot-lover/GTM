@@ -12,14 +12,14 @@ router = APIRouter(prefix="/companies", tags=["companies"])
 
 class CompanyIn(BaseModel):
     business_name: str = Field(min_length=1, max_length=300)
-    website: str | None = None
-    phone: str | None = None
-    city: str | None = None
-    state: str | None = None
-    vertical: str | None = None
-    owner_name: str | None = None
-    source: str | None = None
-    source_url: str | None = None
+    website: str | None = Field(default=None, max_length=2000)
+    phone: str | None = Field(default=None, max_length=20)
+    city: str | None = Field(default=None, max_length=100)
+    state: str | None = Field(default=None, max_length=50)
+    vertical: str | None = Field(default=None, max_length=200)
+    owner_name: str | None = Field(default=None, max_length=200)
+    source: str | None = Field(default=None, max_length=200)
+    source_url: str | None = Field(default=None, max_length=2000)
 
 
 @router.post("", status_code=201)

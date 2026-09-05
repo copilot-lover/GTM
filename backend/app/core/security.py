@@ -33,6 +33,8 @@ def verify_password(password: str, stored: str) -> bool:
 
 def create_token(user_id: str, workspace_id: str) -> str:
     s = get_settings()
+    if not s.jwt_secret:
+        raise RuntimeError("JWT_SECRET environment variable is required")
     now = int(time.time())
     payload = {
         "sub": user_id,

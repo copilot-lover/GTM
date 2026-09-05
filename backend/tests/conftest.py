@@ -62,6 +62,14 @@ def clean_db(applied_migrations):
     conn.close()
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    from app.main import RateLimitMiddleware
+    RateLimitMiddleware.reset()
+    yield
+    RateLimitMiddleware.reset()
+
+
 @pytest.fixture
 def db_url() -> str:
     return TEST_DB_URL
