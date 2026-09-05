@@ -18,7 +18,7 @@ function ConfiguredBadge({ ok }: { ok: boolean }) {
 
 function Row({ label, value, mono = false }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-2 border-b text-sm last:border-b-0" style={{ borderColor: "#f2f2f0" }}>
+    <div className="flex items-start justify-between gap-4 py-2 border-b text-sm last:border-b-0" style={{ borderColor: "var(--line-soft)" }}>
       <span style={{ color: "var(--ink-3)" }}>{label}</span>
       <span className={mono ? "mono" : ""} style={{ color: "var(--ink)" }}>{value}</span>
     </div>
@@ -48,7 +48,7 @@ export default function Settings() {
         </p>
       </div>
 
-      {error && <div className="card px-4 py-2.5 text-sm" style={{ color: "#9f2f2d", borderColor: "#f5d5d4", background: "#fdf6f6" }}>{error}</div>}
+      {error && <div className="card px-4 py-2.5 text-sm" style={{ color: "var(--bad-deep)", borderColor: "#f2cfcf", background: "var(--bad-soft)" }}>{error}</div>}
 
       {settings && (
         <>

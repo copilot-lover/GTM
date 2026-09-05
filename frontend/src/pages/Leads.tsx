@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api";
 
 interface LeadItem {
@@ -19,9 +20,10 @@ const STATUSES = ["new","enriching","qualified","signal_holding","outreach_ready
   "lost","rejected","do_not_call","unreachable","archived"];
 
 export default function Leads() {
+  const [searchParams] = useSearchParams();
   const [items, setItems] = useState<LeadItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(searchParams.get("q") ?? "");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
 

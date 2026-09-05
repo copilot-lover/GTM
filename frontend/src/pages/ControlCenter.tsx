@@ -103,10 +103,10 @@ export default function ControlCenter() {
         </div>
       </div>
 
-      {error && <div className="card px-4 py-2.5 text-sm" style={{ color: "#9f2f2d", borderColor: "#f5d5d4", background: "#fdf6f6" }}>{error}</div>}
-      {actionMsg && <div className="card px-4 py-2.5 text-sm" style={{ color: "#346538", borderColor: "#d9e4d8", background: "#f7faf7" }}>{actionMsg}</div>}
+      {error && <div className="card px-4 py-2.5 text-sm" style={{ color: "var(--bad-deep)", borderColor: "#f2cfcf", background: "var(--bad-soft)" }}>{error}</div>}
+      {actionMsg && <div className="card px-4 py-2.5 text-sm" style={{ color: "var(--good-deep)", borderColor: "#d2e9de", background: "var(--good-soft)" }}>{actionMsg}</div>}
       {data?.paused && (
-        <div className="card px-4 py-2.5 text-sm flex items-center gap-2" style={{ color: "#956400", borderColor: "#f0e2bb", background: "#fbf3db" }}>
+        <div className="card px-4 py-2.5 text-sm flex items-center gap-2" style={{ color: "var(--warn-deep)", borderColor: "#f0e6c8", background: "var(--warn-soft)" }}>
           <Pause size={14} weight="bold" /> Sending paused — resume to continue outreach.
         </div>
       )}
@@ -127,8 +127,8 @@ export default function ControlCenter() {
               <span key={k} className="inline-flex items-center" style={{ color: "var(--ink-2)" }} title={String(v)}>
                 <Dot st={st} />
                 {CHECK_LABELS[k] ?? k}
-                {st === "warn" && <span className="ml-1.5 text-[10px] font-medium uppercase rounded px-1.5 py-0.5" style={{ background: "#fbf3db", color: "#956400" }}>not configured</span>}
-                {st === "down" && <span className="ml-1.5 text-[10px] font-medium uppercase rounded px-1.5 py-0.5" style={{ background: "#fdebec", color: "#9f2f2d" }}>down</span>}
+                {st === "warn" && <span className="ml-1.5 text-[10px] font-medium uppercase rounded px-1.5 py-0.5" style={{ background: "var(--warn-soft)", color: "var(--warn-deep)" }}>not configured</span>}
+                {st === "down" && <span className="ml-1.5 text-[10px] font-medium uppercase rounded px-1.5 py-0.5" style={{ background: "var(--bad-soft)", color: "var(--bad-deep)" }}>down</span>}
               </span>
             );
           })}
@@ -211,7 +211,7 @@ export default function ControlCenter() {
             {data?.providers?.map((p) => (
               <div key={p.provider} className="flex items-center justify-between text-xs">
                 <span style={{ color: "var(--ink-3)" }}>{p.provider}</span>
-                <span className="mono tnum" style={{ color: p.used >= p.quota ? "#9f2f2d" : "var(--ink-2)" }}>
+                <span className="mono tnum" style={{ color: p.used >= p.quota ? "var(--bad-deep)" : "var(--ink-2)" }}>
                   {p.used}/{p.quota}
                 </span>
               </div>
@@ -227,14 +227,14 @@ export default function ControlCenter() {
           </div>
           {alerts.length === 0 ? (
             <div className="flex items-center gap-2 text-sm" style={{ color: "var(--ink-3)" }}>
-              <CheckCircle size={16} weight="bold" style={{ color: "#4ba05b" }} /> all clear
+              <CheckCircle size={16} weight="bold" style={{ color: "var(--good-deep)" }} /> all clear
             </div>
           ) : (
             <div className="space-y-2">
               {alerts.slice(0, 5).map((a) => (
                 <div key={a.id} className="flex items-start gap-2 text-sm">
                   <Warning size={14} weight="bold" className="mt-0.5 shrink-0"
-                    style={{ color: a.severity === "critical" ? "#c94f4c" : "#d9a514" }} />
+                    style={{ color: a.severity === "critical" ? "var(--bad)" : "var(--warn-deep)" }} />
                   <span>
                     <span className="block" style={{ color: "var(--ink)" }}>{a.title ?? a.message ?? a.kind}</span>
                     <span className="block text-xs" style={{ color: "var(--ink-3)" }}>

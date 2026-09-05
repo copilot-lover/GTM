@@ -91,8 +91,8 @@ export default function TelegramSettings() {
         </p>
       </div>
 
-      {error && <div className="card px-4 py-2.5 text-sm" style={{ color: "#9f2f2d", borderColor: "#f5d5d4", background: "#fdf6f6" }}>{error}</div>}
-      {msg && <div className="card px-4 py-2.5 text-sm" style={{ color: "#346538", borderColor: "#d9e4d8", background: "#f7faf7" }}>{msg}</div>}
+      {error && <div className="card px-4 py-2.5 text-sm" style={{ color: "var(--bad-deep)", borderColor: "#f2cfcf", background: "var(--bad-soft)" }}>{error}</div>}
+      {msg && <div className="card px-4 py-2.5 text-sm" style={{ color: "var(--good-deep)", borderColor: "#d2e9de", background: "var(--good-soft)" }}>{msg}</div>}
 
       <div className="card px-5 py-4 flex items-center gap-4">
         <div className="flex-1">
@@ -103,7 +103,7 @@ export default function TelegramSettings() {
         </div>
         <button
           aria-label="Toggle notifications"
-          className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${enabled ? "bg-[#346538]" : "bg-[#d6d5d0]"}`}
+          className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${enabled ? "bg-[var(--accent)]" : "bg-[var(--line)]"}`}
           onClick={() => setSettings((s) => s ? { ...s, enabled: !s.enabled } : s)}
         >
           <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${enabled ? "left-5" : "left-0.5"}`} />
@@ -155,7 +155,7 @@ export default function TelegramSettings() {
 
       <div className="panel">
         <div className="panel-title">What to notify on</div>
-        <div className="divide-y" style={{ borderColor: "#f2f2f0" }}>
+        <div className="divide-y" style={{ borderColor: "var(--line-soft)" }}>
           {EVENT_TYPES.map((t) => {
             const on = settings?.notify_types?.[t.key] ?? false;
             return (
@@ -167,7 +167,7 @@ export default function TelegramSettings() {
                   className="w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors"
                   style={on
                     ? { background: "var(--ink)", borderColor: "var(--ink)" }
-                    : { background: "#fff", borderColor: "#c9c7c0" }}
+                    : { background: "#fff", borderColor: "var(--ink-3)" }}
                 >
                   {on && <CheckCircle size={12} weight="fill" color="#fff" />}
                 </span>

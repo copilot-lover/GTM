@@ -314,7 +314,7 @@ export default function GtmExplorer() {
                   <DetailSection title="WHAT COMES OUT"><p><b>{activeBrain.output}</b></p></DetailSection>
                   <DetailSection title="REAL EXAMPLE"><div className="bg-[#eef2ff] border border-[#e0e7ff] rounded-lg p-3 text-sm">{activeBrain.example}</div></DetailSection>
                   <DetailSection title="CONNECTIONS"><p>GTM Intent provides context: “What changed, why now?”<br />GTM Leads provides qualification: “Who is this, is it worth pursuing?”<br />Together → Opportunity → Outreach → Conversation → Meeting</p></DetailSection>
-                  <DetailSection title="WHY IT MATTERS"><div className="bg-[#fffbeb] border border-[#fef3c7] rounded-lg p-3">Distinct brains prevent spam and ensure every outreach has a reason to exist.</div></DetailSection>
+                  <DetailSection title="WHY IT MATTERS"><div className="bg-[var(--warn-soft)] border border-[#fef3c7] rounded-lg p-3">Distinct brains prevent spam and ensure every outreach has a reason to exist.</div></DetailSection>
                   <DetailSection title="IMPLEMENTATION TRACE"><p className="mono text-xs">{activeBrain.trace.join(" • ")}</p></DetailSection>
                 </>
               )}
@@ -345,7 +345,7 @@ export default function GtmExplorer() {
                       <div className="text-slate-500 mt-1">{activeStage.howItConnects.detail}</div>
                     </DetailSection>
                   )}
-                  {depth >= 0 && <DetailSection title="WHY IT MATTERS"><div className="bg-[#fffbeb] border border-[#fef3c7] rounded-lg p-3">{activeStage.whyItMatters}</div></DetailSection>}
+                  {depth >= 0 && <DetailSection title="WHY IT MATTERS"><div className="bg-[var(--warn-soft)] border border-[#fef3c7] rounded-lg p-3">{activeStage.whyItMatters}</div></DetailSection>}
                   {depth >= 3 && <DetailSection title="ADVANCED DETAILS"><p className="text-xs leading-relaxed">{activeStage.advanced}</p><p className="mono text-xs mt-2 text-slate-500">Trace: {activeStage.trace.backendModules.join(" • ")} {activeStage.trace.stateMachine ? `| State: ${activeStage.trace.stateMachine}` : ""} {activeStage.trace.agent ? `| Agent: ${activeStage.trace.agent}` : ""}</p></DetailSection>}
 
                   {/* Simulation for this stage */}

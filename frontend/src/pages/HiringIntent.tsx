@@ -65,7 +65,7 @@ export default function HiringIntent() {
         </div>
       </div>
 
-      {error && <div className="card px-4 py-2.5 text-sm" style={{ color: "#9f2f2d", borderColor: "#f5d5d4", background: "#fdf6f6" }}>{error}</div>}
+      {error && <div className="card px-4 py-2.5 text-sm" style={{ color: "var(--bad-deep)", borderColor: "#f2cfcf", background: "var(--bad-soft)" }}>{error}</div>}
 
       {loading ? (
         <div className="card py-16 text-center text-sm" style={{ color: "var(--ink-3)" }}>loading…</div>

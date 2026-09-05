@@ -27,7 +27,7 @@ function HealthBar({ health }: { health: any }) {
   return (
     <div
       className="card px-4 py-2.5 flex items-center gap-4 flex-wrap text-[13px]"
-      style={down ? { borderColor: "#f5d5d4", background: "#fdf6f6" } : undefined}
+      style={down ? { borderColor: "#f2cfcf", background: "var(--bad-soft)" } : undefined}
     >
       <span className="panel-title mb-0 mr-1">System</span>
       {entries.map(([k, v]) => {
@@ -38,13 +38,13 @@ function HealthBar({ health }: { health: any }) {
             {HEALTH_META[k]?.label ?? k}
             {st === "warn" && (
               <span className="ml-1.5 text-[10px] font-medium uppercase rounded px-1.5 py-0.5"
-                style={{ background: "#fbf3db", color: "#956400" }}>
+                style={{ background: "var(--warn-soft)", color: "var(--warn-deep)" }}>
                 not configured
               </span>
             )}
             {st === "down" && (
               <span className="ml-1.5 text-[10px] font-medium uppercase rounded px-1.5 py-0.5"
-                style={{ background: "#fdebec", color: "#9f2f2d" }}>
+                style={{ background: "var(--bad-soft)", color: "var(--bad-deep)" }}>
                 down
               </span>
             )}
@@ -133,7 +133,7 @@ export default function Dashboard() {
       </div>
 
       {error && (
-        <div className="card px-4 py-2.5 text-sm" style={{ color: "#9f2f2d", borderColor: "#f5d5d4", background: "#fdf6f6" }}>
+        <div className="card px-4 py-2.5 text-sm" style={{ color: "var(--bad-deep)", borderColor: "#f2cfcf", background: "var(--bad-soft)" }}>
           {error} — retrying on next poll
         </div>
       )}
@@ -163,16 +163,16 @@ export default function Dashboard() {
             </div>
           )}
 
-          <div className="divide-y" style={{ borderColor: "#f2f2f0" }}>
+          <div className="divide-y" style={{ borderColor: "var(--line-soft)" }}>
             {items.map((a: any) => {
               const meta = stageLabel(a.summary || "");
               return (
                 <a key={a.lead_id + a.created_at}
                    href={`/leads/${a.lead_id}`}
-                   className="flex items-start gap-3.5 px-5 py-4 transition-colors hover:bg-[#fafaf9]"
-                   style={{ borderColor: "#f2f2f0" } as React.CSSProperties}>
+                   className="flex items-start gap-3.5 px-5 py-4 transition-colors hover:bg-[#fbfbfa]"
+                   style={{ borderColor: "var(--line-soft)" } as React.CSSProperties}>
                   <span className="mt-0.5 w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-                    style={{ background: "#f1f1ef", color: "var(--ink-2)" }}>
+                    style={{ background: "var(--line-soft)", color: "var(--ink-2)" }}>
                     <PlayCircle size={14} weight="bold" />
                   </span>
                   <span className="flex-1 min-w-0">
@@ -217,7 +217,7 @@ export default function Dashboard() {
                 <CheckSquare size={14} weight="bold" /> Review approvals
                 {kpis?.pending_approvals > 0 && (
                   <span className="ml-1 rounded-full px-1.5 text-xs font-semibold tnum"
-                    style={{ background: "#fbf3db", color: "#956400" }}>
+                    style={{ background: "var(--warn-soft)", color: "var(--warn-deep)" }}>
                     {kpis.pending_approvals}
                   </span>
                 )}

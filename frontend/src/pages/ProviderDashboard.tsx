@@ -43,10 +43,10 @@ function ConfiguredBadge({ ok }: { ok: boolean }) {
 
 function ProgressBar({ used, total }: { used: number; total: number }) {
   const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
-  const bg = pct > 80 ? "#c94f4c" : pct > 50 ? "#d9a514" : "#4ba05b";
+  const bg = pct > 80 ? "var(--bad)" : pct > 50 ? "var(--warn-deep)" : "var(--good-deep)";
   return (
     <div className="flex items-center gap-2">
-      <div className="w-24 h-1.5 rounded-full overflow-hidden" style={{ background: "#f1f1ef" }}>
+      <div className="w-24 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--line-soft)" }}>
         <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: bg }} />
       </div>
       <span className="mono text-xs" style={{ color: "var(--ink-3)" }}>{pct}%</span>
@@ -163,8 +163,8 @@ export default function ProviderDashboard() {
         </p>
       </div>
 
-      {error && <div className="card px-4 py-2.5 text-sm" style={{ color: "#9f2f2d", borderColor: "#f5d5d4", background: "#fdf6f6" }}>{error}</div>}
-      {msg && <div className="card px-4 py-2.5 text-sm" style={{ color: "#346538", borderColor: "#d9e4d8", background: "#f7faf7" }}>{msg}</div>}
+      {error && <div className="card px-4 py-2.5 text-sm" style={{ color: "var(--bad-deep)", borderColor: "#f2cfcf", background: "var(--bad-soft)" }}>{error}</div>}
+      {msg && <div className="card px-4 py-2.5 text-sm" style={{ color: "var(--good-deep)", borderColor: "#d2e9de", background: "var(--good-soft)" }}>{msg}</div>}
 
       {/* Usage table */}
       <table className="tbl">
@@ -305,7 +305,7 @@ export default function ProviderDashboard() {
               <span className="text-sm flex-1" style={{ color: "var(--ink-2)" }}>{label}</span>
               <button
                 aria-label={`Toggle ${label}`}
-                className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${scraperForm[key] ? "bg-[#346538]" : "bg-[#d6d5d0]"}`}
+                className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${scraperForm[key] ? "bg-[var(--accent)]" : "bg-[var(--line)]"}`}
                 onClick={() => { clearFeedback(); setScraperForm((f) => ({ ...f, [key]: !f[key] })); }}
               >
                 <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${scraperForm[key] ? "left-5" : "left-0.5"}`} />

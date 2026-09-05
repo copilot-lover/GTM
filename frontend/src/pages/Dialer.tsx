@@ -242,7 +242,7 @@ export default function Dialer() {
                   d === "do_not_call"
                     ? "bg-red-900/60 text-red-200 hover:bg-red-800"
                     : d === "appointment_set"
-                      ? "bg-[#22c55e]/20 text-[#22c55e] hover:bg-[#22c55e]/30"
+                      ? "bg-[var(--accent)]/20 text-[var(--accent)] hover:bg-[var(--accent)]/30"
                       : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
                 }`}
               >
